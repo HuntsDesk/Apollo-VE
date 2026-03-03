@@ -203,7 +203,9 @@ def filter_server_tools(server):
     # This ensures clean content block display instead of {"result": "..."}.
     for tool in get_tool_components(server).values():
         output_schema = getattr(tool, "output_schema", None)
-        if isinstance(output_schema, dict) and output_schema.get("x-fastmcp-wrap-result"):
+        if isinstance(output_schema, dict) and output_schema.get(
+            "x-fastmcp-wrap-result"
+        ):
             tool.output_schema = None
             schemas_cleared += 1
 
