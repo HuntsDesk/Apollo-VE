@@ -316,6 +316,12 @@ class ValidationManager:
                 "At least one paragraph style parameter must be provided (heading_level, alignment, line_spacing, indent_first_line, indent_start, indent_end, space_above, space_below, or named_style_type)",
             )
 
+        if heading_level is not None and named_style_type is not None:
+            return (
+                False,
+                "heading_level and named_style_type are mutually exclusive; provide only one",
+            )
+
         if named_style_type is not None:
             if named_style_type not in VALID_NAMED_STYLE_TYPES:
                 return (
@@ -323,7 +329,7 @@ class ValidationManager:
                     f"Invalid named_style_type '{named_style_type}'. Must be one of: {', '.join(VALID_NAMED_STYLE_TYPES)}",
                 )
 
-        if heading_level is not None:
+        if heading_level is not None and named_style_type is None:
             if not isinstance(heading_level, int):
                 return (
                     False,
