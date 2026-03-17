@@ -3,6 +3,8 @@ Unit tests for Google Chat MCP tools — attachment support
 """
 
 import base64
+from urllib.parse import urlparse
+
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 import sys
@@ -271,10 +273,12 @@ async def test_download_uses_api_media_endpoint():
     # Verify we used the API endpoint with attachmentDataRef.resourceName
     call_args = mock_client.get.call_args
     url_used = call_args.args[0]
-    assert "chat.googleapis.com" in url_used
+    parsed = urlparse(url_used)
+    assert parsed.scheme == "https"
+    assert parsed.hostname == "chat.googleapis.com"
     assert "alt=media" in url_used
-    assert "spaces/S/attachments/A" in url_used
-    assert "/messages/" not in url_used
+    assert "spaces/S/attachments/A" in parsed.path
+    assert "/messages/" not in parsed.path
 
     # Verify Bearer token
     assert call_args.kwargs["headers"]["Authorization"] == "Bearer fake-access-token"

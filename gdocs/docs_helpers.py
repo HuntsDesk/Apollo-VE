@@ -138,9 +138,15 @@ def build_paragraph_style(
 
     if named_style_type is not None:
         valid_styles = [
-            "NORMAL_TEXT", "TITLE", "SUBTITLE",
-            "HEADING_1", "HEADING_2", "HEADING_3",
-            "HEADING_4", "HEADING_5", "HEADING_6",
+            "NORMAL_TEXT",
+            "TITLE",
+            "SUBTITLE",
+            "HEADING_1",
+            "HEADING_2",
+            "HEADING_3",
+            "HEADING_4",
+            "HEADING_5",
+            "HEADING_6",
         ]
         if named_style_type not in valid_styles:
             raise ValueError(

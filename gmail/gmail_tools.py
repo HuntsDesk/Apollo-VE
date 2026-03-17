@@ -36,7 +36,17 @@ logger = logging.getLogger(__name__)
 GMAIL_BATCH_SIZE = 25
 GMAIL_REQUEST_DELAY = 0.1
 HTML_BODY_TRUNCATE_LIMIT = 20000
-GMAIL_METADATA_HEADERS = ["Subject", "From", "To", "Cc", "Message-ID", "Date"]
+
+GMAIL_METADATA_HEADERS = [
+    "Subject",
+    "From",
+    "To",
+    "Cc",
+    "Message-ID",
+    "In-Reply-To",
+    "References",
+    "Date",
+]
 LOW_VALUE_TEXT_PLACEHOLDERS = (
     "your client does not support html",
     "view this email in your browser",
@@ -215,6 +225,114 @@ def _append_signature_to_body(
         return body
     separator = "\n\n" if body.strip() else ""
     return f"{body}{separator}{signature_text}"
+
+
+async def _fetch_original_for_quote(
+    service, thread_id: str, in_reply_to: Optional[str] = None
+) -> Optional[dict]:
+    """Fetch the original message from a thread for quoting in a reply.
+
+    When *in_reply_to* is provided the function looks for that specific
+    Message-ID inside the thread.  Otherwise it falls back to the last
+    message in the thread.
+
+    Returns a dict with keys: sender, date, text_body, html_body -- or
+    *None* when the message cannot be retrieved.
+    """
+    try:
+        thread_data = await asyncio.to_thread(
+            service.users()
+            .threads()
+            .get(userId="me", id=thread_id, format="full")
+            .execute
+        )
+    except Exception as e:
+        logger.warning(f"Failed to fetch thread {thread_id} for quoting: {e}")
+        return None
+
+    messages = thread_data.get("messages", [])
+    if not messages:
+        return None
+
+    target = None
+    if in_reply_to:
+        for msg in messages:
+            headers = {
+                h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])
+            }
+            if headers.get("Message-ID") == in_reply_to:
+                target = msg
+                break
+    if target is None:
+        target = messages[-1]
+
+    headers = {
+        h["name"]: h["value"] for h in target.get("payload", {}).get("headers", [])
+    }
+    bodies = _extract_message_bodies(target.get("payload", {}))
+    return {
+        "sender": headers.get("From", "unknown"),
+        "date": headers.get("Date", ""),
+        "text_body": bodies.get("text", ""),
+        "html_body": bodies.get("html", ""),
+    }
+
+
+def _build_quoted_reply_body(
+    reply_body: str,
+    body_format: Literal["plain", "html"],
+    signature_html: str,
+    original: dict,
+) -> str:
+    """Assemble reply body + signature + quoted original message.
+
+    Layout:
+        reply_body
+        -- signature --
+        On {date}, {sender} wrote:
+        > quoted original
+    """
+    import html as _html_mod
+
+    if original.get("date"):
+        attribution = f"On {original['date']}, {original['sender']} wrote:"
+    else:
+        attribution = f"{original['sender']} wrote:"
+
+    if body_format == "html":
+        # Signature
+        sig_block = ""
+        if signature_html and signature_html.strip():
+            sig_block = f"<br><br>{signature_html}"
+
+        # Quoted original
+        orig_html = original.get("html_body") or ""
+        if not orig_html:
+            orig_text = original.get("text_body", "")
+            orig_html = f"<pre>{_html_mod.escape(orig_text)}</pre>"
+
+        quote_block = (
+            '<br><br><div class="gmail_quote">'
+            f"<span>{_html_mod.escape(attribution)}</span><br>"
+            '<blockquote style="margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex">'
+            f"{orig_html}"
+            "</blockquote></div>"
+        )
+        return f"{reply_body}{sig_block}{quote_block}"
+
+    # Plain text path
+    sig_block = ""
+    if signature_html and signature_html.strip():
+        sig_text = _html_to_text(signature_html).strip()
+        if sig_text:
+            sig_block = f"\n\n{sig_text}"
+
+    orig_text = original.get("text_body") or ""
+    if not orig_text and original.get("html_body"):
+        orig_text = _html_to_text(original["html_body"])
+    quoted_lines = "\n".join(f"> {line}" for line in orig_text.splitlines())
+
+    return f"{reply_body}{sig_block}\n\n{attribution}\n{quoted_lines}"
 
 
 async def _get_send_as_signature_html(service, from_email: Optional[str] = None) -> str:
@@ -761,6 +879,13 @@ async def get_gmail_message_content(
     if rfc822_msg_id:
         content_lines.append(f"Message-ID: {rfc822_msg_id}")
 
+    in_reply_to = headers.get("In-Reply-To", "")
+    references = headers.get("References", "")
+    if in_reply_to:
+        content_lines.append(f"In-Reply-To: {in_reply_to}")
+    if references:
+        content_lines.append(f"References: {references}")
+
     if to:
         content_lines.append(f"To:      {to}")
     if cc:
@@ -926,12 +1051,19 @@ async def get_gmail_messages_content_batch(
                     cc = headers.get("Cc", "")
                     rfc822_msg_id = headers.get("Message-ID", "")
 
+                    in_reply_to = headers.get("In-Reply-To", "")
+                    references = headers.get("References", "")
+
                     msg_output = (
                         f"Message ID: {mid}\nSubject: {subject}\nFrom: {sender}\n"
                         f"Date: {headers.get('Date', '(unknown date)')}\n"
                     )
                     if rfc822_msg_id:
                         msg_output += f"Message-ID: {rfc822_msg_id}\n"
+                    if in_reply_to:
+                        msg_output += f"In-Reply-To: {in_reply_to}\n"
+                    if references:
+                        msg_output += f"References: {references}\n"
 
                     if to:
                         msg_output += f"To: {to}\n"
@@ -957,12 +1089,19 @@ async def get_gmail_messages_content_batch(
                     # Format body content with HTML fallback
                     body_data = _format_body_content(text_body, html_body)
 
+                    in_reply_to = headers.get("In-Reply-To", "")
+                    references = headers.get("References", "")
+
                     msg_output = (
                         f"Message ID: {mid}\nSubject: {subject}\nFrom: {sender}\n"
                         f"Date: {headers.get('Date', '(unknown date)')}\n"
                     )
                     if rfc822_msg_id:
                         msg_output += f"Message-ID: {rfc822_msg_id}\n"
+                    if in_reply_to:
+                        msg_output += f"In-Reply-To: {in_reply_to}\n"
+                    if references:
+                        msg_output += f"References: {references}\n"
 
                     if to:
                         msg_output += f"To: {to}\n"
@@ -1202,7 +1341,7 @@ async def send_gmail_message(
     in_reply_to: Annotated[
         Optional[str],
         Field(
-            description="Optional Message-ID of the message being replied to.",
+            description="Optional RFC Message-ID of the message being replied to (e.g., '<message123@gmail.com>').",
         ),
     ] = None,
     references: Annotated[
@@ -1244,8 +1383,8 @@ async def send_gmail_message(
             the email will be sent from the authenticated user's primary email address.
         user_google_email (str): The user's Google email address. Required for authentication.
         thread_id (Optional[str]): Optional Gmail thread ID to reply within. When provided, sends a reply.
-        in_reply_to (Optional[str]): Optional Message-ID of the message being replied to. Used for proper threading.
-        references (Optional[str]): Optional chain of Message-IDs for proper threading. Should include all previous Message-IDs.
+        in_reply_to (Optional[str]): Optional RFC Message-ID of the message being replied to (e.g., '<message123@gmail.com>').
+        references (Optional[str]): Optional chain of RFC Message-IDs for proper threading (e.g., '<msg1@gmail.com> <msg2@gmail.com>').
 
     Returns:
         str: Confirmation message with the sent email's message ID.
@@ -1409,7 +1548,7 @@ async def draft_gmail_message(
     in_reply_to: Annotated[
         Optional[str],
         Field(
-            description="Optional Message-ID of the message being replied to.",
+            description="Optional RFC Message-ID of the message being replied to (e.g., '<message123@gmail.com>').",
         ),
     ] = None,
     references: Annotated[
@@ -1430,6 +1569,12 @@ async def draft_gmail_message(
             description="Whether to append the Gmail signature from Settings > Signature when available. Defaults to true.",
         ),
     ] = True,
+    quote_original: Annotated[
+        bool,
+        Field(
+            description="Whether to include the original message as a quoted reply. Requires thread_id. Defaults to false.",
+        ),
+    ] = False,
 ) -> str:
     """
     Creates a draft email in the user's Gmail account. Supports both new drafts and reply drafts with optional attachments.
@@ -1448,8 +1593,8 @@ async def draft_gmail_message(
             configured in Gmail settings (Settings > Accounts > Send mail as). If not provided,
             the draft will be from the authenticated user's primary email address.
         thread_id (Optional[str]): Optional Gmail thread ID to reply within. When provided, creates a reply draft.
-        in_reply_to (Optional[str]): Optional Message-ID of the message being replied to. Used for proper threading.
-        references (Optional[str]): Optional chain of Message-IDs for proper threading. Should include all previous Message-IDs.
+        in_reply_to (Optional[str]): Optional RFC Message-ID of the message being replied to (e.g., '<message123@gmail.com>').
+        references (Optional[str]): Optional chain of RFC Message-IDs for proper threading (e.g., '<msg1@gmail.com> <msg2@gmail.com>').
         attachments (List[Dict[str, str]]): Optional list of attachments. Each dict can contain:
             Option 1 - File path (auto-encodes):
               - 'path' (required): File path to attach
@@ -1461,6 +1606,9 @@ async def draft_gmail_message(
               - 'mime_type' (optional): MIME type (defaults to 'application/octet-stream')
         include_signature (bool): Whether to append Gmail signature HTML from send-as settings.
             If unavailable (e.g., missing gmail.settings.basic scope), the draft is still created without signature.
+        quote_original (bool): Whether to include the original message as a quoted reply.
+            Requires thread_id to be provided. When enabled, fetches the original message
+            and appends it below the signature. Defaults to False.
 
     Returns:
         str: Confirmation message with the created draft's ID.
@@ -1525,10 +1673,23 @@ async def draft_gmail_message(
     # Use from_email (Send As alias) if provided, otherwise default to authenticated user
     sender_email = from_email or user_google_email
     draft_body = body
+    signature_html = ""
     if include_signature:
         signature_html = await _get_send_as_signature_html(
             service, from_email=sender_email
         )
+
+    if quote_original and thread_id:
+        original = await _fetch_original_for_quote(service, thread_id, in_reply_to)
+        if original:
+            draft_body = _build_quoted_reply_body(
+                draft_body, body_format, signature_html, original
+            )
+        else:
+            draft_body = _append_signature_to_body(
+                draft_body, body_format, signature_html
+            )
+    else:
         draft_body = _append_signature_to_body(draft_body, body_format, signature_html)
 
     # Auto-populate In-Reply-To and References when thread_id is provided

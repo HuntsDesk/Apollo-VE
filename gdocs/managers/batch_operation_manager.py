@@ -325,7 +325,9 @@ class BatchOperationManager:
                     tab_id,
                 )
                 style = "bulleted" if list_type == "UNORDERED" else "numbered"
-                description = f"create {style} list {op['start_index']}-{op['end_index']}"
+                description = (
+                    f"create {style} list {op['start_index']}-{op['end_index']}"
+                )
                 if op.get("nesting_level"):
                     description += f" (nesting level {op['nesting_level']})"
 
@@ -491,7 +493,11 @@ class BatchOperationManager:
                 },
                 "create_bullet_list": {
                     "required": ["start_index", "end_index"],
-                    "optional": ["list_type", "nesting_level", "paragraph_start_indices"],
+                    "optional": [
+                        "list_type",
+                        "nesting_level",
+                        "paragraph_start_indices",
+                    ],
                     "description": "Apply or remove native bullet/numbered list formatting (list_type: UNORDERED, ORDERED, or NONE to remove; nesting_level: 0-8)",
                 },
                 "insert_doc_tab": {
