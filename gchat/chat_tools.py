@@ -163,18 +163,18 @@ async def get_messages(
     space_id: str,
     page_size: int = 50,
     order_by: str = "createTime desc",
-    filter: Optional[str] = None,
+    message_filter: Optional[str] = None,
 ) -> str:
     """
     Retrieves messages from a Google Chat space.
 
     Args:
-        filter: Optional filter string using the Chat API filter syntax.
-                Supports createTime and thread.name.
-                Examples:
-                  'createTime > "2026-03-18T00:00:00-03:00"'
-                  'createTime > "2026-03-18T00:00:00-03:00" AND createTime < "2026-03-19T00:00:00-03:00"'
-                  'thread.name = spaces/X/threads/Y'
+        message_filter: Optional filter string using the Chat API filter syntax.
+                        Supports createTime and thread.name.
+                        Examples:
+                          'createTime > "2026-03-18T00:00:00-03:00"'
+                          'createTime > "2026-03-18T00:00:00-03:00" AND createTime < "2026-03-19T00:00:00-03:00"'
+                          'thread.name = spaces/X/threads/Y'
 
     Returns:
         str: Formatted messages from the specified space.
@@ -189,8 +189,8 @@ async def get_messages(
 
     # Get messages
     list_params = {"parent": space_id, "pageSize": page_size, "orderBy": order_by}
-    if filter:
-        list_params["filter"] = filter
+    if message_filter is not None:
+        list_params["filter"] = message_filter
     response = await asyncio.to_thread(
         chat_service.spaces().messages().list(**list_params).execute
     )
@@ -347,15 +347,24 @@ async def search_messages(
     Returns:
         str: A formatted list of messages matching the search criteria.
     """
-    logger.info(f"[search_messages] Email={user_google_email}, Query='{query}', TimeFilter='{time_filter}'")
+    logger.info(
+        f"[search_messages] Email={user_google_email}, Query='{query}', TimeFilter='{time_filter}'"
+    )
 
     # Build combined filter string
-    parts = []
+    filter_parts = []
     if query:
-        parts.append(f'text:"{query}"')
+        filter_parts.append(f'text:"{query}"')
     if time_filter:
-        parts.append(time_filter)
-    filter_str = " AND ".join(parts) if parts else None
+        filter_parts.append(time_filter)
+    filter_str = " AND ".join(filter_parts) if filter_parts else None
+
+    search_terms = []
+    if query:
+        search_terms.append(f'text "{query}"')
+    if time_filter:
+        search_terms.append(time_filter)
+    search_desc = " and ".join(search_terms) if search_terms else "all messages"
 
     # If specific space provided, search within that space
     if space_id:
@@ -377,7 +386,7 @@ async def search_messages(
         messages = []
         for space in spaces[:max_spaces]:
             try:
-                list_params = {"parent": space.get("name"), "pageSize": 5}
+                list_params = {"parent": space.get("name"), "pageSize": page_size}
                 if filter_str:
                     list_params["filter"] = filter_str
                 space_messages = await asyncio.to_thread(
@@ -394,7 +403,6 @@ async def search_messages(
                 continue
         context = "all accessible spaces"
 
-    search_desc = query or time_filter or "all messages"
     if not messages:
         return f"No messages found matching '{search_desc}' in {context}."
 
