@@ -1343,18 +1343,17 @@ uv run main.py --transport streamable-http
 ```
 
 **How It Works:**
-- **Protocol-level auth disabled**: MCP handshake (`initialize`) and `tools/list` do not require authentication
-- **Tool-level auth required**: All tool calls must include `Authorization: Bearer <token>` header
-- **External OAuth flow**: Your external system handles the OAuth flow and obtains Google access tokens
-- **Token validation**: Server validates bearer tokens via Google's tokeninfo API
+- **Protocol-level auth enabled**: All MCP requests (including `initialize` and `tools/list`) require a valid Bearer token, following the standard OAuth 2.1 flow. Unauthenticated requests receive a `401` with resource metadata pointing to Google's authorization server.
+- **External OAuth flow**: Your external system handles the OAuth flow and obtains Google access tokens (`ya29.*`)
+- **Token validation**: Server validates bearer tokens by calling Google's userinfo API
 - **Multi-user support**: Each request is authenticated independently based on its bearer token
+- **Resource metadata discovery**: The server serves `/.well-known/oauth-protected-resource` (RFC 9728) advertising Google as the authorization server and the required scopes
 
 **Key Features:**
-- **No local OAuth flow**: Server does not provide OAuth callback endpoints or manage OAuth state
-- **Bearer token only**: All authentication via Authorization headers
+- **No local OAuth flow**: Server does not provide `/authorize`, `/token`, or `/register` endpoints — only resource metadata
+- **Bearer token only**: All authentication via `Authorization: Bearer <token>` headers
 - **Stateless by design**: Works seamlessly with `WORKSPACE_MCP_STATELESS_MODE=true`
 - **External identity providers**: Integrate with your existing authentication infrastructure
-- **Tool discovery**: Clients can list available tools without authentication
 
 **Requirements:**
 - Must be used with `MCP_ENABLE_OAUTH21=true`

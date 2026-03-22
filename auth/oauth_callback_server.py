@@ -177,7 +177,9 @@ class MinimalOAuthServer:
         other_parsed = urlparse(base_uri)
         if self_parsed.scheme.lower() != other_parsed.scheme.lower():
             return False
-        if (self_parsed.hostname or "").lower() != (other_parsed.hostname or "").lower():
+        if (self_parsed.hostname or "").lower() != (
+            other_parsed.hostname or ""
+        ).lower():
             return False
         default_port = 443 if self_parsed.scheme.lower() == "https" else 80
         self_port = self_parsed.port or default_port
@@ -200,7 +202,9 @@ class MinimalOAuthServer:
                 logger.info("Minimal OAuth server is already running")
                 return True, ""
             else:
-                logger.warning("Minimal OAuth server was marked running but port is not responding. Restarting.")
+                logger.warning(
+                    "Minimal OAuth server was marked running but port is not responding. Restarting."
+                )
                 self.stop()
                 self.server = None
                 self.server_thread = None
@@ -331,7 +335,9 @@ def ensure_oauth_callback_available(
                 _minimal_oauth_server = None
 
             if _minimal_oauth_server is None:
-                logger.info(f"Creating minimal OAuth server instance for {base_uri}:{port}")
+                logger.info(
+                    f"Creating minimal OAuth server instance for {base_uri}:{port}"
+                )
                 _minimal_oauth_server = MinimalOAuthServer(port, base_uri)
 
             if not _minimal_oauth_server.is_actually_running():

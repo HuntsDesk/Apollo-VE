@@ -22,7 +22,9 @@ async def test_get_authenticated_google_service_skips_preflight_outside_stdio(
     monkeypatch.setattr("auth.google_auth.get_fastmcp_context", None)
     monkeypatch.setattr("auth.google_auth.asyncio.to_thread", fake_to_thread)
     monkeypatch.setattr("auth.google_auth.get_credentials", lambda **kwargs: None)
-    monkeypatch.setattr("auth.google_auth.get_transport_mode", lambda: "streamable-http")
+    monkeypatch.setattr(
+        "auth.google_auth.get_transport_mode", lambda: "streamable-http"
+    )
     monkeypatch.setattr(
         "auth.google_auth.get_oauth_redirect_uri",
         lambda: "http://localhost:8000/oauth2callback",

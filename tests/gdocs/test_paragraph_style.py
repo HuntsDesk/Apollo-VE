@@ -153,7 +153,10 @@ class TestBatchManagerIntegration:
             "named_style_type": "TITLE",
         }
         request, desc = manager._build_operation_request(op, "update_paragraph_style")
-        assert request["updateParagraphStyle"]["paragraphStyle"]["namedStyleType"] == "TITLE"
+        assert (
+            request["updateParagraphStyle"]["paragraphStyle"]["namedStyleType"]
+            == "TITLE"
+        )
         assert "named style: TITLE" in desc
 
     @pytest.mark.asyncio
