@@ -322,6 +322,17 @@ def _build_message_get_request(
     return service.users().messages().get(**request_kwargs)
 
 
+def _validate_message_batch_options(
+    response_format: Literal["full", "metadata"],
+    body_format: Literal["text", "html", "raw"],
+) -> None:
+    """Reject incompatible output combinations for batch message reads."""
+    if response_format == "metadata" and body_format != "text":
+        raise UserInputError(
+            "body_format='html' and body_format='raw' require format='full'."
+        )
+
+
 async def _fetch_message_with_retry(
     service,
     message_id: str,
@@ -1162,6 +1173,7 @@ async def get_gmail_messages_content_batch(
 
     if not message_ids:
         raise Exception("No message IDs provided")
+    _validate_message_batch_options(format, body_format)
 
     output_messages = []
 

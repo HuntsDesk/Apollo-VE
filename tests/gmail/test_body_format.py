@@ -6,6 +6,7 @@ from unittest.mock import Mock
 import pytest
 
 import gmail.gmail_tools as gmail_tools
+from core.utils import UserInputError
 from gmail.gmail_tools import (
     _extract_message_bodies,
     _format_body_content,
@@ -384,6 +385,27 @@ async def test_get_gmail_messages_content_batch_default_text_format():
     assert "Plain text body" in result
     assert "--- BODY ---" in result
     assert "--- RAW MIME ---" not in result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body_format", ["html", "raw"])
+async def test_get_gmail_messages_content_batch_rejects_metadata_with_body_format(
+    body_format,
+):
+    service = _build_service(
+        message_responses={
+            ("msg-1", "metadata"): _metadata_response("msg-1"),
+        }
+    )
+
+    with pytest.raises(UserInputError, match="require format='full'"):
+        await _unwrap(get_gmail_messages_content_batch)(
+            service=service,
+            message_ids=["msg-1"],
+            user_google_email="user@example.com",
+            format="metadata",
+            body_format=body_format,
+        )
 
 
 @pytest.mark.asyncio
