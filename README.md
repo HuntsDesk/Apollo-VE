@@ -27,6 +27,47 @@
 
 ---
 
+<div align="center">
+<table>
+<tr>
+<td align="center">
+<b>⚡ Start</b><br>
+<sub>
+<a href="#quick-start">Quick Start</a> · <a href="#prerequisites">Prerequisites</a><br>
+<a href="#configuration">Google Cloud</a> · <a href="#-credential-configuration">Credentials</a>
+</sub>
+</td>
+<td align="center">
+<b>🧰 Tools</b><br>
+<sub>
+<a href="#-available-tools">All Tools</a> · <a href="#tool-tiers">Tool Tiers</a><br>
+<a href="#cli">CLI</a> · <a href="#start-the-server">Start Server</a>
+</sub>
+</td>
+<td align="center">
+<b>🔌 Connect</b><br>
+<sub>
+<a href="#one-click-claude-desktop-install-claude-desktop-only-stdio-single-user">1-Click Install</a> · <a href="#connect-to-claude-desktop">Claude Desktop</a><br>
+<a href="#claude-code-mcp-client-support">Claude Code</a> · <a href="#vs-code-mcp-client-support">VS Code</a> · <a href="#connect-to-lm-studio">LM Studio</a>
+</sub>
+</td>
+<td align="center">
+<b>🚀 Deploy</b><br>
+<sub>
+<a href="#oauth-21-support-multi-user-bearer-token-authentication">OAuth 2.1</a> · <a href="#stateless-mode-container-friendly">Stateless</a><br>
+<a href="#external-oauth-21-provider-mode">External OAuth</a> · <a href="#reverse-proxy-setup">Reverse Proxy</a>
+</sub>
+</td>
+<td align="center">
+<b>📐 Develop</b><br>
+<sub>
+<a href="#-development">Architecture</a> · <a href="#local-development-setup">Dev Setup</a><br>
+<a href="#-security">Security</a> · <a href="#-license">License</a>
+</sub>
+</td>
+</tr>
+</table>
+</div>
 
 **See it in action:**
 <div align="center">
@@ -44,50 +85,35 @@ Workspace MCP is the single most complete MCP server that integrates all major G
 
 ## <span style="color:#adbcbc">Features</span>
 
-<table align="center" style="width: 100%; max-width: 100%;">
+> **12 services** &ensp;—&ensp; Gmail · Drive · Calendar · Docs · Sheets · Slides · Forms · Chat · Apps Script · Tasks · Contacts · Search
+
+<table>
 <tr>
-<td width="50%" valign="top">
+<td valign="top" width="50%">
 
-**<span style="color:#72898f">@</span> Gmail** • **<span style="color:#72898f">≡</span> Drive** • **<span style="color:#72898f">⧖</span> Calendar** **<span style="color:#72898f">≡</span> Docs**
-- Complete Gmail management, end-to-end coverage
-- Full calendar management with advanced features
-- File operations with Office format support
-- Document creation, editing & comments
-- Deep, exhaustive support for fine-grained editing
-
----
-
-**<span style="color:#72898f">≡</span> Forms** • **<span style="color:#72898f">@</span> Chat** • **<span style="color:#72898f">≡</span> Sheets** • **<span style="color:#72898f">≡</span> Slides**
-- Form creation, publish settings & response management
-- Space management & messaging capabilities
-- Spreadsheet operations with flexible cell management
-- Presentation creation, updates & content manipulation
-
----
-
-**<span style="color:#72898f">◆</span> Apps Script**
-- Automate cross-application workflows with custom code
-- Execute existing business logic and custom functions
-- Manage script projects, deployments & versions
-- Debug and modify Apps Script code programmatically
-- Bridge Google Workspace services through automation
+**📧 Gmail** — Complete email management, end-to-end coverage<br>
+**📁 Drive** — File operations with sharing, permissions & Office formats<br>
+**📅 Calendar** — Full event management with advanced features<br>
+**📝 Docs** — Deep, fine-grained editing, formatting & comments<br>
+**📊 Sheets** — Flexible cell management, formatting & conditional rules<br>
+**🖼️ Slides** — Presentation creation, updates & content manipulation<br>
+**📋 Forms** — Creation, publish settings & response management<br>
+**💬 Chat** — Space management, messaging & reactions
 
 </td>
-<td width="50%" valign="top">
+<td valign="top" width="50%">
 
-**<span style="color:#72898f">⊠</span> Authentication & Security**
-- Advanced OAuth 2.0 & OAuth 2.1 support
-- Automatic token refresh & session management
-- Transport-aware callback handling
-- Multi-user bearer token authentication
-- Innovative CORS proxy architecture
+**⚡ Apps Script** — Cross-application workflow automation<br>
+<sub>&ensp;Projects · deployments · versions · execution · debugging</sub>
+
+**✅ Tasks** — Task & list management with hierarchy<br>
+**👤 Contacts** — People API with groups & batch operations<br>
+**🔍 Custom Search** — Programmable Search Engine integration
 
 ---
 
-**<span style="color:#72898f">✓</span> Tasks** • **<span style="color:#72898f">👤</span> Contacts** • **<span style="color:#72898f">◆</span> Custom Search**
-- Task & task list management with hierarchy
-- Contact management via People API with groups
-- Programmable Search Engine (PSE) integration
+**🔐 Authentication & Security**<br>
+<sub>OAuth 2.0 & 2.1 · auto token refresh · multi-user bearer tokens · transport-aware callbacks · CORS proxy</sub>
 
 </td>
 </tr>
@@ -97,87 +123,73 @@ Workspace MCP is the single most complete MCP server that integrates all major G
 
 ## Quick Start
 
-<details open>
-<summary><b>Quick Reference Card</b> - Essential commands & configs at a glance</summary>
+> Set credentials → pick a launch command → connect your client
 
-<table>
-<tr><td width="33%" valign="top">
-
-**Credentials**
 ```bash
+# 1. Credentials
 export GOOGLE_OAUTH_CLIENT_ID="..."
 export GOOGLE_OAUTH_CLIENT_SECRET="..."
+
+# 2. Launch — pick a tier
+uvx workspace-mcp --tool-tier core       # essential tools
+uvx workspace-mcp --tool-tier extended   # core + management ops
+uvx workspace-mcp --tool-tier complete   # everything
+
+# Or cherry-pick services
+uv run main.py --tools gmail drive calendar
 ```
-[Full setup →](#credential-configuration)
 
-</td><td width="33%" valign="top">
+<sub>[Credential setup →](#-credential-configuration) · [All launch options →](#start-the-server) · [Tier details →](#tool-tiers)</sub>
 
-**Launch Commands**
-```bash
-uvx workspace-mcp --tool-tier core
-uv run main.py --tools gmail drive
-```
-[More options →](#start-the-server)
-
-</td><td width="34%" valign="top">
-
-**Tool Tiers**
-- `core` - Essential tools
-- `extended` - Core + extras
-- `complete` - Everything
-[Details →](#tool-tiers)
-
-</td></tr>
-</table>
-
-</details>
-
-
-
-#### Required Configuration
 <details open>
-<summary><b>Environment Variables</b> <sub><sup>← Click to configure in Claude Desktop</sup></sub></summary>
+<summary><b>Environment Variable Reference</b></summary>
+<sub>
 
-<table>
-<tr><td width="50%" valign="top">
+| Variable | | Purpose |
+|----------|:---:|---------|
+| **🔐 Authentication** | | |
+| `GOOGLE_OAUTH_CLIENT_ID` | **required** | OAuth client ID from Google Cloud |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | **required** | OAuth client secret |
+| `OAUTHLIB_INSECURE_TRANSPORT` | **required**&ast; | Set to `1` for development — allows `http://` redirect |
+| `USER_GOOGLE_EMAIL` | | Default email for single-user auth |
+| `GOOGLE_CLIENT_SECRET_PATH` | | Custom path to `client_secret.json` |
+| `GOOGLE_MCP_CREDENTIALS_DIR` | | Credential storage directory — default `~/.google_workspace_mcp/credentials` |
+| **🖥️ Server** | | |
+| `WORKSPACE_MCP_BASE_URI` | | Base server URI (no port) — default `http://localhost` |
+| `WORKSPACE_MCP_PORT` | | Listening port — default `8000` |
+| `WORKSPACE_MCP_HOST` | | Bind host — default `0.0.0.0` |
+| `WORKSPACE_EXTERNAL_URL` | | External URL for reverse proxy setups |
+| `WORKSPACE_ATTACHMENT_DIR` | | Downloaded attachments dir — default `~/.workspace-mcp/attachments/` |
+| `WORKSPACE_MCP_URL` | | Remote MCP endpoint URL for CLI |
+| `ALLOWED_FILE_DIRS` | | Colon-separated allowlist for local file reads |
+| **🔑 OAuth 2.1 & Multi-User** | | |
+| `MCP_ENABLE_OAUTH21` | | `true` to enable OAuth 2.1 multi-user support |
+| `EXTERNAL_OAUTH21_PROVIDER` | | `true` for external OAuth flow with bearer tokens |
+| `WORKSPACE_MCP_STATELESS_MODE` | | `true` for stateless container-friendly operation |
+| `GOOGLE_OAUTH_REDIRECT_URI` | | Override OAuth callback URL — default auto-constructed |
+| `OAUTH_CUSTOM_REDIRECT_URIS` | | Comma-separated additional redirect URIs |
+| `OAUTH_ALLOWED_ORIGINS` | | Comma-separated additional CORS origins |
+| `WORKSPACE_MCP_OAUTH_PROXY_STORAGE_BACKEND` | | `memory`, `disk`, or `valkey` — see [storage backends](#oauth-proxy-storage-backends) |
+| `FASTMCP_SERVER_AUTH_GOOGLE_JWT_SIGNING_KEY` | | Custom encryption key for OAuth proxy storage |
+| **🔍 Custom Search** | | |
+| `GOOGLE_PSE_API_KEY` | | API key for Programmable Search Engine |
+| `GOOGLE_PSE_ENGINE_ID` | | Search Engine ID for PSE |
 
-**Required**
-| Variable | Purpose |
-|----------|---------|
-| `GOOGLE_OAUTH_CLIENT_ID` | OAuth client ID from Google Cloud |
-| `GOOGLE_OAUTH_CLIENT_SECRET` | OAuth client secret |
-| `OAUTHLIB_INSECURE_TRANSPORT=1` | Development only (allows `http://` redirect) |
+&ast;Required for development only. Claude Desktop stores credentials securely in the OS keychain — set them once in the extension pane.
 
-</td><td width="50%" valign="top">
-
-**Optional**
-| Variable | Purpose |
-|----------|---------|
-| `USER_GOOGLE_EMAIL` | Default email for single-user auth |
-| `GOOGLE_PSE_API_KEY` | API key for Custom Search |
-| `GOOGLE_PSE_ENGINE_ID` | Search Engine ID for Custom Search |
-| `MCP_ENABLE_OAUTH21` | Set to `true` for OAuth 2.1 support |
-| `EXTERNAL_OAUTH21_PROVIDER` | Set to `true` for external OAuth flow with bearer tokens (requires OAuth 2.1) |
-| `WORKSPACE_MCP_STATELESS_MODE` | Set to `true` for stateless operation (requires OAuth 2.1) |
-
-</td></tr>
-</table>
-
-Claude Desktop stores these securely in the OS keychain; set them once in the extension pane.
+</sub>
 </details>
 
 ---
 
-### One-Click Claude Desktop Install (Claude Desktop Only, Stdio, Single User)
+### One-Click Claude Desktop Install
 
-1. **Download:** Grab the latest `google_workspace_mcp.dxt` from the “Releases” page
-2. **Install:** Double-click the file – Claude Desktop opens and prompts you to **Install**
-3. **Configure:** In Claude Desktop → **Settings → Extensions → Google Workspace MCP**, paste your Google OAuth credentials
-4. **Use it:** Start a new Claude chat and call any Google Workspace tool
+> `.dxt` bundles server, deps & manifest — download → double-click → done. No terminal, no JSON editing.
 
->
-**Why DXT?**
-> Desktop Extensions (`.dxt`) bundle the server, dependencies, and manifest so users go from download → working MCP in **one click** – no terminal, no JSON editing, no version conflicts.
+1. **Download** the latest `google_workspace_mcp.dxt` from [Releases](https://github.com/taylorwilsdon/google_workspace_mcp/releases)
+2. **Install** — double-click the file, Claude Desktop prompts to install
+3. **Configure** — Settings → Extensions → Google Workspace MCP, paste your OAuth credentials
+4. **Use it** — start a new Claude chat and call any Google Workspace tool
 
 <div align="center">
   <video width="832" src="https://github.com/user-attachments/assets/83cca4b3-5e94-448b-acb3-6e3a27341d3a"></video>
@@ -187,210 +199,32 @@ Claude Desktop stores these securely in the OS keychain; set them once in the ex
 
 ### Prerequisites
 
-- **Python 3.10+**
-- **[uvx](https://github.com/astral-sh/uv)** (for instant installation) or [uv](https://github.com/astral-sh/uv) (for development)
-- **Google Cloud Project** with OAuth 2.0 credentials
+**Python 3.10+** · **[uv/uvx](https://github.com/astral-sh/uv)** · **Google Cloud Project** with OAuth 2.0 credentials
 
 ### Configuration
 
 <details open>
-<summary><b>Google Cloud Setup</b> <sub><sup>← OAuth 2.0 credentials & API enablement</sup></sub></summary>
+<summary><b>Google Cloud Setup</b></summary>
 
-<table>
-<tr>
-<td width="33%" align="center">
+1. **Create Project** — [Open Console →](https://console.cloud.google.com/) → Create new project
+2. **Create OAuth Credentials** — APIs & Services → Credentials → Create Credentials → OAuth Client ID
+   - Choose **Desktop Application** (no redirect URIs needed!)
+   - Download and note your Client ID & Client Secret
+3. **Enable APIs** — APIs & Services → Library, then enable each service:
 
-**1. Create Project**
-```text
-console.cloud.google.com
+   | | | | |
+   |:--|:--|:--|:--|
+   | [Calendar](https://console.cloud.google.com/flows/enableapi?apiid=calendar-json.googleapis.com) | [Drive](https://console.cloud.google.com/flows/enableapi?apiid=drive.googleapis.com) | [Gmail](https://console.cloud.google.com/flows/enableapi?apiid=gmail.googleapis.com) | [Docs](https://console.cloud.google.com/flows/enableapi?apiid=docs.googleapis.com) |
+   | [Sheets](https://console.cloud.google.com/flows/enableapi?apiid=sheets.googleapis.com) | [Slides](https://console.cloud.google.com/flows/enableapi?apiid=slides.googleapis.com) | [Forms](https://console.cloud.google.com/flows/enableapi?apiid=forms.googleapis.com) | [Tasks](https://console.cloud.google.com/flows/enableapi?apiid=tasks.googleapis.com) |
+   | [Chat](https://console.cloud.google.com/flows/enableapi?apiid=chat.googleapis.com) | [People](https://console.cloud.google.com/flows/enableapi?apiid=people.googleapis.com) | [Custom Search](https://console.cloud.google.com/flows/enableapi?apiid=customsearch.googleapis.com) | [Apps Script](https://console.cloud.google.com/flows/enableapi?apiid=script.googleapis.com) |
 
-→ Create new project
-→ Note project name
-```
-<sub>[Open Console →](https://console.cloud.google.com/)</sub>
-
-</td>
-<td width="33%" align="center">
-
-**2. OAuth Credentials**
-```text
-APIs & Services → Credentials
-→ Create Credentials
-→ OAuth Client ID
-→ Desktop Application
-```
-<sub>Download & save credentials</sub>
-
-</td>
-<td width="34%" align="center">
-
-**3. Enable APIs**
-```text
-APIs & Services → Library
-
-Search & enable:
-Calendar, Drive, Gmail,
-Docs, Sheets, Slides,
-Forms, Tasks, People,
-Chat, Search
-```
-<sub>See quick links below</sub>
-
-</td>
-</tr>
-<tr>
-<td colspan="3">
-
-<details open>
-<summary><b>OAuth Credential Setup Guide</b> <sub><sup>← Step-by-step instructions</sup></sub></summary>
-
-**Complete Setup Process:**
-
-1. **Create OAuth 2.0 Credentials** - Visit [Google Cloud Console](https://console.cloud.google.com/)
-   - Create a new project (or use existing)
-   - Navigate to **APIs & Services → Credentials**
-   - Click **Create Credentials → OAuth Client ID**
-   - Choose **Desktop Application** as the application type (no redirect URIs needed!)
-   - Download credentials and note the Client ID and Client Secret
-
-2. **Enable Required APIs** - In **APIs & Services → Library**
-   - Search for and enable each required API
-   - Or use the quick links below for one-click enabling
-
-3. **Configure Environment** - Set your credentials:
+4. **Set Credentials** — see [Environment Variable Reference](#quick-start) above, or:
    ```bash
    export GOOGLE_OAUTH_CLIENT_ID="your-client-id"
    export GOOGLE_OAUTH_CLIENT_SECRET="your-secret"
    ```
 
-[Full Documentation →](https://developers.google.com/workspace/guides/auth-overview)
-
-</details>
-
-</td>
-</tr>
-</table>
-
-<details open>
-  <summary><b>Quick API Enable Links</b> <sub><sup>← One-click enable each Google API</sup></sub></summary>
-  You can enable each one by clicking the links below (make sure you're logged into the Google Cloud Console and have the correct project selected):
-
-* [Enable Google Calendar API](https://console.cloud.google.com/flows/enableapi?apiid=calendar-json.googleapis.com)
-* [Enable Google Drive API](https://console.cloud.google.com/flows/enableapi?apiid=drive.googleapis.com)
-* [Enable Gmail API](https://console.cloud.google.com/flows/enableapi?apiid=gmail.googleapis.com)
-* [Enable Google Docs API](https://console.cloud.google.com/flows/enableapi?apiid=docs.googleapis.com)
-* [Enable Google Sheets API](https://console.cloud.google.com/flows/enableapi?apiid=sheets.googleapis.com)
-* [Enable Google Slides API](https://console.cloud.google.com/flows/enableapi?apiid=slides.googleapis.com)
-* [Enable Google Forms API](https://console.cloud.google.com/flows/enableapi?apiid=forms.googleapis.com)
-* [Enable Google Tasks API](https://console.cloud.google.com/flows/enableapi?apiid=tasks.googleapis.com)
-* [Enable Google Chat API](https://console.cloud.google.com/flows/enableapi?apiid=chat.googleapis.com)
-* [Enable Google People API](https://console.cloud.google.com/flows/enableapi?apiid=people.googleapis.com)
-* [Enable Google Custom Search API](https://console.cloud.google.com/flows/enableapi?apiid=customsearch.googleapis.com)
-* [Enable Google Apps Script API](https://console.cloud.google.com/flows/enableapi?apiid=script.googleapis.com)
-
-</details>
-
-</details>
-
-1.1. **Credentials**: See [Credential Configuration](#credential-configuration) for detailed setup options
-
-2. **Environment Configuration**:
-
-<details open>
-<summary>◆ <b>Environment Variables</b> <sub><sup>← Configure your runtime environment</sup></sub></summary>
-
-<table>
-<tr>
-<td width="33%" align="center">
-
-**◆ Development Mode**
-```bash
-export OAUTHLIB_INSECURE_TRANSPORT=1
-```
-<sub>Allows HTTP redirect URIs</sub>
-
-</td>
-<td width="33%" align="center">
-
-**@ Default User**
-```bash
-export USER_GOOGLE_EMAIL=\
-  your.email@gmail.com
-```
-<sub>Single-user authentication</sub>
-
-</td>
-<td width="34%" align="center">
-
-**◆ Custom Search**
-```bash
-export GOOGLE_PSE_API_KEY=xxx
-export GOOGLE_PSE_ENGINE_ID=yyy
-```
-<sub>Optional: Search API setup</sub>
-
-</td>
-</tr>
-</table>
-
-</details>
-
-3. **Server Configuration**:
-
-<details open>
-<summary>◆ <b>Server Settings</b> <sub><sup>← Customize ports, URIs & proxies</sup></sub></summary>
-
-<table>
-<tr>
-<td width="33%" align="center">
-
-**◆ Base Configuration**
-```bash
-export WORKSPACE_MCP_BASE_URI=
-  http://localhost
-export WORKSPACE_MCP_PORT=8000
-export WORKSPACE_MCP_HOST=0.0.0.0  # Use 127.0.0.1 for localhost-only
-```
-<sub>Server URL & port settings</sub>
-
-</td>
-<td width="33%" align="center">
-
-**↻ Proxy Support**
-```bash
-export MCP_ENABLE_OAUTH21=
-  true
-```
-<sub>Leverage multi-user OAuth2.1 clients</sub>
-
-</td>
-<td width="34%" align="center">
-
-**@ Default Email**
-```bash
-export USER_GOOGLE_EMAIL=\
-  your.email@gmail.com
-```
-<sub>Skip email in auth flows in single user mode</sub>
-
-</td>
-</tr>
-</table>
-
-<details open>
-<summary>≡ <b>Configuration Details</b> <sub><sup>← Learn more about each setting</sup></sub></summary>
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `WORKSPACE_MCP_BASE_URI` | Base server URI (no port) | `http://localhost` |
-| `WORKSPACE_MCP_PORT` | Server listening port | `8000` |
-| `WORKSPACE_MCP_HOST` | Server bind host | `0.0.0.0` |
-| `WORKSPACE_EXTERNAL_URL` | External URL for reverse proxy setups | None |
-| `WORKSPACE_ATTACHMENT_DIR` | Directory for downloaded attachments | `~/.workspace-mcp/attachments/` |
-| `GOOGLE_OAUTH_REDIRECT_URI` | Override OAuth callback URL | Auto-constructed |
-| `USER_GOOGLE_EMAIL` | Default auth email | None |
-
-</details>
+<sub>[Full OAuth documentation →](https://developers.google.com/workspace/guides/auth-overview) · [Credential setup details →](#-credential-configuration)</sub>
 
 </details>
 
@@ -776,65 +610,51 @@ cp .env.oauth21 .env
 
 > **Note**: All tools support automatic authentication via `@require_google_service()` decorators with 30-minute service caching.
 
-<table width="100%">
-<tr>
-<td width="50%" valign="top">
+#### 📅 Google Calendar <sub>[`calendar_tools.py`](gcalendar/calendar_tools.py)</sub>
 
-### 📅 **Google Calendar** <sub>[`calendar_tools.py`](gcalendar/calendar_tools.py)</sub>
-
-| Tool | Tier | Description |
+| <sub>Tool</sub> | <sub>Tier</sub> | <sub>Description</sub> |
 |------|------|-------------|
-| `list_calendars` | **Core** | List accessible calendars |
-| `get_events` | **Core** | Retrieve events with time range filtering |
-| `manage_event` | **Core** | Create, update, or delete calendar events |
+| <sub>`list_calendars`</sub> | <sub>Core</sub> | <sub>List accessible calendars</sub> |
+| <sub>`get_events`</sub> | <sub>Core</sub> | <sub>Retrieve events with time range filtering</sub> |
+| <sub>`manage_event`</sub> | <sub>Core</sub> | <sub>Create, update, or delete calendar events</sub> |
 
-</td>
-<td width="50%" valign="top">
+#### 📁 Google Drive <sub>[`drive_tools.py`](gdrive/drive_tools.py)</sub>
 
-### 📁 **Google Drive** <sub>[`drive_tools.py`](gdrive/drive_tools.py)</sub>
-
-| Tool | Tier | Description |
+| <sub>Tool</sub> | <sub>Tier</sub> | <sub>Description</sub> |
 |------|------|-------------|
-| `search_drive_files` | **Core** | Search files with query syntax |
-| `get_drive_file_content` | **Core** | Read file content (Office formats) |
-| `get_drive_file_download_url` | **Core** | Download Drive files to local disk |
-| `create_drive_file` | **Core** | Create files or fetch from URLs |
-| `create_drive_folder` | **Core** | Create empty folders in Drive or shared drives |
-| `import_to_google_doc` | **Core** | Import files (MD, DOCX, HTML, etc.) as Google Docs |
-| `get_drive_shareable_link` | **Core** | Get shareable links for a file |
-| `list_drive_items` | Extended | List folder contents |
-| `copy_drive_file` | Extended | Copy existing files (templates) with optional renaming |
-| `update_drive_file` | Extended | Update file metadata, move between folders |
-| `manage_drive_access` | Extended | Grant, update, revoke permissions, and transfer ownership |
-| `set_drive_file_permissions` | Extended | Set link sharing and file-level sharing settings |
-| `get_drive_file_permissions` | Complete | Get detailed file permissions |
-| `check_drive_file_public_access` | Complete | Check public sharing status |
+| <sub>`search_drive_files`</sub> | <sub>Core</sub> | <sub>Search files with query syntax</sub> |
+| <sub>`get_drive_file_content`</sub> | <sub>Core</sub> | <sub>Read file content (Office formats)</sub> |
+| <sub>`get_drive_file_download_url`</sub> | <sub>Core</sub> | <sub>Download Drive files to local disk</sub> |
+| <sub>`create_drive_file`</sub> | <sub>Core</sub> | <sub>Create files or fetch from URLs</sub> |
+| <sub>`create_drive_folder`</sub> | <sub>Core</sub> | <sub>Create empty folders in Drive or shared drives</sub> |
+| <sub>`import_to_google_doc`</sub> | <sub>Core</sub> | <sub>Import files (MD, DOCX, HTML, etc.) as Google Docs</sub> |
+| <sub>`get_drive_shareable_link`</sub> | <sub>Core</sub> | <sub>Get shareable links for a file</sub> |
+| <sub>`list_drive_items`</sub> | <sub>Extended</sub> | <sub>List folder contents</sub> |
+| <sub>`copy_drive_file`</sub> | <sub>Extended</sub> | <sub>Copy existing files (templates) with optional renaming</sub> |
+| <sub>`update_drive_file`</sub> | <sub>Extended</sub> | <sub>Update file metadata, move between folders</sub> |
+| <sub>`manage_drive_access`</sub> | <sub>Extended</sub> | <sub>Grant, update, revoke permissions, and transfer ownership</sub> |
+| <sub>`set_drive_file_permissions`</sub> | <sub>Extended</sub> | <sub>Set link sharing and file-level sharing settings</sub> |
+| <sub>`get_drive_file_permissions`</sub> | <sub>Complete</sub> | <sub>Get detailed file permissions</sub> |
+| <sub>`check_drive_file_public_access`</sub> | <sub>Complete</sub> | <sub>Check public sharing status</sub> |
 
-</td>
-</tr>
-<tr>
+#### 📧 Gmail <sub>[`gmail_tools.py`](gmail/gmail_tools.py)</sub>
 
-<tr>
-<td width="50%" valign="top">
-
-### 📧 **Gmail** <sub>[`gmail_tools.py`](gmail/gmail_tools.py)</sub>
-
-| Tool | Tier | Description |
+| <sub>Tool</sub> | <sub>Tier</sub> | <sub>Description</sub> |
 |------|------|-------------|
-| `search_gmail_messages` | **Core** | Search with Gmail operators |
-| `get_gmail_message_content` | **Core** | Retrieve message content |
-| `get_gmail_messages_content_batch` | **Core** | Batch retrieve message content |
-| `send_gmail_message` | **Core** | Send emails |
-| `get_gmail_thread_content` | Extended | Get full thread content |
-| `modify_gmail_message_labels` | Extended | Modify message labels |
-| `list_gmail_labels` | Extended | List available labels |
-| `list_gmail_filters` | Extended | List Gmail filters |
-| `manage_gmail_label` | Extended | Create/update/delete labels |
-| `manage_gmail_filter` | Extended | Create or delete Gmail filters |
-| `draft_gmail_message` | Extended | Create drafts |
-| `get_gmail_threads_content_batch` | Complete | Batch retrieve thread content |
-| `batch_modify_gmail_message_labels` | Complete | Batch modify labels |
-| `start_google_auth` | Complete | Legacy OAuth 2.0 auth (disabled when OAuth 2.1 is enabled) |
+| <sub>`search_gmail_messages`</sub> | <sub>Core</sub> | <sub>Search with Gmail operators</sub> |
+| <sub>`get_gmail_message_content`</sub> | <sub>Core</sub> | <sub>Retrieve message content</sub> |
+| <sub>`get_gmail_messages_content_batch`</sub> | <sub>Core</sub> | <sub>Batch retrieve message content</sub> |
+| <sub>`send_gmail_message`</sub> | <sub>Core</sub> | <sub>Send emails</sub> |
+| <sub>`get_gmail_thread_content`</sub> | <sub>Extended</sub> | <sub>Get full thread content</sub> |
+| <sub>`modify_gmail_message_labels`</sub> | <sub>Extended</sub> | <sub>Modify message labels</sub> |
+| <sub>`list_gmail_labels`</sub> | <sub>Extended</sub> | <sub>List available labels</sub> |
+| <sub>`list_gmail_filters`</sub> | <sub>Extended</sub> | <sub>List Gmail filters</sub> |
+| <sub>`manage_gmail_label`</sub> | <sub>Extended</sub> | <sub>Create/update/delete labels</sub> |
+| <sub>`manage_gmail_filter`</sub> | <sub>Extended</sub> | <sub>Create or delete Gmail filters</sub> |
+| <sub>`draft_gmail_message`</sub> | <sub>Extended</sub> | <sub>Create drafts</sub> |
+| <sub>`get_gmail_threads_content_batch`</sub> | <sub>Complete</sub> | <sub>Batch retrieve thread content</sub> |
+| <sub>`batch_modify_gmail_message_labels`</sub> | <sub>Complete</sub> | <sub>Batch modify labels</sub> |
+| <sub>`start_google_auth`</sub> | <sub>Complete</sub> | <sub>Legacy OAuth 2.0 auth (disabled when OAuth 2.1 is enabled)</sub> |
 
 <details open>
 <summary><b>📎 Email Attachments</b> <sub><sup>← Send emails with files</sup></sub></summary>
@@ -878,170 +698,131 @@ Saved files expire after 1 hour and are cleaned up automatically.
 
 </details>
 
-</td>
-<td width="50%" valign="top">
+#### 📝 Google Docs <sub>[`docs_tools.py`](gdocs/docs_tools.py)</sub>
 
-### 📝 **Google Docs** <sub>[`docs_tools.py`](gdocs/docs_tools.py)</sub>
-
-| Tool | Tier | Description |
+| <sub>Tool</sub> | <sub>Tier</sub> | <sub>Description</sub> |
 |------|------|-------------|
-| `get_doc_content` | **Core** | Extract document text |
-| `create_doc` | **Core** | Create new documents |
-| `modify_doc_text` | **Core** | Modify document text (formatting + links) |
-| `search_docs` | Extended | Find documents by name |
-| `find_and_replace_doc` | Extended | Find and replace text |
-| `list_docs_in_folder` | Extended | List docs in folder |
-| `insert_doc_elements` | Extended | Add tables, lists, page breaks |
-| `update_paragraph_style` | Extended | Apply heading styles, lists (bulleted/numbered with nesting), and paragraph formatting |
-| `get_doc_as_markdown` | Extended | Export document as formatted Markdown with optional comments |
-| `insert_doc_image` | Complete | Insert images from Drive/URLs |
-| `update_doc_headers_footers` | Complete | Modify headers and footers |
-| `batch_update_doc` | Complete | Execute multiple operations |
-| `inspect_doc_structure` | Complete | Analyze document structure |
-| `export_doc_to_pdf` | Extended | Export document to PDF |
-| `create_table_with_data` | Complete | Create data tables |
-| `debug_table_structure` | Complete | Debug table issues |
-| `list_document_comments` | Complete | List all document comments |
-| `manage_document_comment` | Complete | Create, reply to, or resolve comments |
+| <sub>`get_doc_content`</sub> | <sub>Core</sub> | <sub>Extract document text</sub> |
+| <sub>`create_doc`</sub> | <sub>Core</sub> | <sub>Create new documents</sub> |
+| <sub>`modify_doc_text`</sub> | <sub>Core</sub> | <sub>Insert, replace, and richly format text with tab/segment targeting, append-to-segment support, advanced typography, and link management</sub> |
+| <sub>`search_docs`</sub> | <sub>Extended</sub> | <sub>Find documents by name</sub> |
+| <sub>`find_and_replace_doc`</sub> | <sub>Extended</sub> | <sub>Find and replace text</sub> |
+| <sub>`list_docs_in_folder`</sub> | <sub>Extended</sub> | <sub>List docs in folder</sub> |
+| <sub>`insert_doc_elements`</sub> | <sub>Extended</sub> | <sub>Add tables, lists, page breaks</sub> |
+| <sub>`update_paragraph_style`</sub> | <sub>Extended</sub> | <sub>Apply advanced paragraph styling including headings, spacing, direction, pagination controls, shading, and bulleted/numbered/checkbox lists with nesting</sub> |
+| <sub>`get_doc_as_markdown`</sub> | <sub>Extended</sub> | <sub>Export document as formatted Markdown with optional comments</sub> |
+| <sub>`insert_doc_image`</sub> | <sub>Complete</sub> | <sub>Insert images from Drive/URLs</sub> |
+| <sub>`update_doc_headers_footers`</sub> | <sub>Complete</sub> | <sub>Create or update headers and footers with correct segment-aware writes</sub> |
+| <sub>`batch_update_doc`</sub> | <sub>Complete</sub> | <sub>Execute atomic multi-step Docs API operations including named ranges, section breaks, document/section layout, header/footer creation, segment-aware inserts, images, tables, and rich formatting</sub> |
+| <sub>`inspect_doc_structure`</sub> | <sub>Complete</sub> | <sub>Analyze document structure, including safe insertion points, tables, section breaks, headers/footers, and named ranges</sub> |
+| <sub>`export_doc_to_pdf`</sub> | <sub>Extended</sub> | <sub>Export document to PDF</sub> |
+| <sub>`create_table_with_data`</sub> | <sub>Complete</sub> | <sub>Create data tables</sub> |
+| <sub>`debug_table_structure`</sub> | <sub>Complete</sub> | <sub>Debug table issues</sub> |
+| <sub>`list_document_comments`</sub> | <sub>Complete</sub> | <sub>List all document comments</sub> |
+| <sub>`manage_document_comment`</sub> | <sub>Complete</sub> | <sub>Create, reply to, or resolve comments</sub> |
 
-</td>
-</tr>
+#### 📊 Google Sheets <sub>[`sheets_tools.py`](gsheets/sheets_tools.py)</sub>
 
-<tr>
-<td width="50%" valign="top">
-
-### 📊 **Google Sheets** <sub>[`sheets_tools.py`](gsheets/sheets_tools.py)</sub>
-
-| Tool | Tier | Description |
+| <sub>Tool</sub> | <sub>Tier</sub> | <sub>Description</sub> |
 |------|------|-------------|
-| `read_sheet_values` | **Core** | Read cell ranges |
-| `modify_sheet_values` | **Core** | Write/update/clear cells |
-| `create_spreadsheet` | **Core** | Create new spreadsheets |
-| `list_spreadsheets` | Extended | List accessible spreadsheets |
-| `get_spreadsheet_info` | Extended | Get spreadsheet metadata |
-| `format_sheet_range` | Extended | Apply colors, number formats, text wrapping, alignment, bold/italic, font size |
-| `create_sheet` | Complete | Add sheets to existing files |
-| `list_spreadsheet_comments` | Complete | List all spreadsheet comments |
-| `manage_spreadsheet_comment` | Complete | Create, reply to, or resolve comments |
-| `manage_conditional_formatting` | Complete | Add, update, or delete conditional formatting rules |
+| <sub>`read_sheet_values`</sub> | <sub>Core</sub> | <sub>Read cell ranges</sub> |
+| <sub>`modify_sheet_values`</sub> | <sub>Core</sub> | <sub>Write/update/clear cells</sub> |
+| <sub>`create_spreadsheet`</sub> | <sub>Core</sub> | <sub>Create new spreadsheets</sub> |
+| <sub>`list_spreadsheets`</sub> | <sub>Extended</sub> | <sub>List accessible spreadsheets</sub> |
+| <sub>`get_spreadsheet_info`</sub> | <sub>Extended</sub> | <sub>Get spreadsheet metadata</sub> |
+| <sub>`format_sheet_range`</sub> | <sub>Extended</sub> | <sub>Apply colors, number formats, text wrapping, alignment, bold/italic, font size</sub> |
+| <sub>`create_sheet`</sub> | <sub>Complete</sub> | <sub>Add sheets to existing files</sub> |
+| <sub>`list_spreadsheet_comments`</sub> | <sub>Complete</sub> | <sub>List all spreadsheet comments</sub> |
+| <sub>`manage_spreadsheet_comment`</sub> | <sub>Complete</sub> | <sub>Create, reply to, or resolve comments</sub> |
+| <sub>`manage_conditional_formatting`</sub> | <sub>Complete</sub> | <sub>Add, update, or delete conditional formatting rules</sub> |
 
-</td>
-<td width="50%" valign="top">
+#### 🖼️ Google Slides <sub>[`slides_tools.py`](gslides/slides_tools.py)</sub>
 
-### 🖼️ **Google Slides** <sub>[`slides_tools.py`](gslides/slides_tools.py)</sub>
-
-| Tool | Tier | Description |
+| <sub>Tool</sub> | <sub>Tier</sub> | <sub>Description</sub> |
 |------|------|-------------|
-| `create_presentation` | **Core** | Create new presentations |
-| `get_presentation` | **Core** | Retrieve presentation details |
-| `batch_update_presentation` | Extended | Apply multiple updates |
-| `get_page` | Extended | Get specific slide information |
-| `get_page_thumbnail` | Extended | Generate slide thumbnails |
-| `list_presentation_comments` | Complete | List all presentation comments |
-| `manage_presentation_comment` | Complete | Create, reply to, or resolve comments |
+| <sub>`create_presentation`</sub> | <sub>Core</sub> | <sub>Create new presentations</sub> |
+| <sub>`get_presentation`</sub> | <sub>Core</sub> | <sub>Retrieve presentation details</sub> |
+| <sub>`batch_update_presentation`</sub> | <sub>Extended</sub> | <sub>Apply multiple updates</sub> |
+| <sub>`get_page`</sub> | <sub>Extended</sub> | <sub>Get specific slide information</sub> |
+| <sub>`get_page_thumbnail`</sub> | <sub>Extended</sub> | <sub>Generate slide thumbnails</sub> |
+| <sub>`list_presentation_comments`</sub> | <sub>Complete</sub> | <sub>List all presentation comments</sub> |
+| <sub>`manage_presentation_comment`</sub> | <sub>Complete</sub> | <sub>Create, reply to, or resolve comments</sub> |
 
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
+#### 📋 Google Forms <sub>[`forms_tools.py`](gforms/forms_tools.py)</sub>
 
-### 📝 **Google Forms** <sub>[`forms_tools.py`](gforms/forms_tools.py)</sub>
-
-| Tool | Tier | Description |
+| <sub>Tool</sub> | <sub>Tier</sub> | <sub>Description</sub> |
 |------|------|-------------|
-| `create_form` | **Core** | Create new forms |
-| `get_form` | **Core** | Retrieve form details & URLs |
-| `set_publish_settings` | Complete | Configure form settings |
-| `get_form_response` | Complete | Get individual responses |
-| `list_form_responses` | Extended | List all responses with pagination |
-| `batch_update_form` | Complete | Apply batch updates (questions, settings) |
+| <sub>`create_form`</sub> | <sub>Core</sub> | <sub>Create new forms</sub> |
+| <sub>`get_form`</sub> | <sub>Core</sub> | <sub>Retrieve form details & URLs</sub> |
+| <sub>`set_publish_settings`</sub> | <sub>Complete</sub> | <sub>Configure form settings</sub> |
+| <sub>`get_form_response`</sub> | <sub>Complete</sub> | <sub>Get individual responses</sub> |
+| <sub>`list_form_responses`</sub> | <sub>Extended</sub> | <sub>List all responses with pagination</sub> |
+| <sub>`batch_update_form`</sub> | <sub>Complete</sub> | <sub>Apply batch updates (questions, settings)</sub> |
 
-</td>
-<td width="50%" valign="top">
+#### ✓ Google Tasks <sub>[`tasks_tools.py`](gtasks/tasks_tools.py)</sub>
 
-### ✓ **Google Tasks** <sub>[`tasks_tools.py`](gtasks/tasks_tools.py)</sub>
-
-| Tool | Tier | Description |
+| <sub>Tool</sub> | <sub>Tier</sub> | <sub>Description</sub> |
 |------|------|-------------|
-| `list_tasks` | **Core** | List tasks with filtering |
-| `get_task` | **Core** | Retrieve task details |
-| `manage_task` | **Core** | Create, update, delete, or move tasks |
-| `list_task_lists` | Complete | List task lists |
-| `get_task_list` | Complete | Get task list details |
-| `manage_task_list` | Complete | Create, update, delete task lists, or clear completed tasks |
+| <sub>`list_tasks`</sub> | <sub>Core</sub> | <sub>List tasks with filtering</sub> |
+| <sub>`get_task`</sub> | <sub>Core</sub> | <sub>Retrieve task details</sub> |
+| <sub>`manage_task`</sub> | <sub>Core</sub> | <sub>Create, update, delete, or move tasks</sub> |
+| <sub>`list_task_lists`</sub> | <sub>Complete</sub> | <sub>List task lists</sub> |
+| <sub>`get_task_list`</sub> | <sub>Complete</sub> | <sub>Get task list details</sub> |
+| <sub>`manage_task_list`</sub> | <sub>Complete</sub> | <sub>Create, update, delete task lists, or clear completed tasks</sub> |
 
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
+#### 👤 Google Contacts <sub>[`contacts_tools.py`](gcontacts/contacts_tools.py)</sub>
 
-### 👤 **Google Contacts** <sub>[`contacts_tools.py`](gcontacts/contacts_tools.py)</sub>
-
-| Tool | Tier | Description |
+| <sub>Tool</sub> | <sub>Tier</sub> | <sub>Description</sub> |
 |------|------|-------------|
-| `search_contacts` | **Core** | Search contacts by name, email, phone |
-| `get_contact` | **Core** | Retrieve detailed contact info |
-| `list_contacts` | **Core** | List contacts with pagination |
-| `manage_contact` | **Core** | Create, update, or delete contacts |
-| `list_contact_groups` | Extended | List contact groups/labels |
-| `get_contact_group` | Extended | Get group details with members |
-| `manage_contacts_batch` | Complete | Batch create, update, or delete contacts |
-| `manage_contact_group` | Complete | Create, update, delete groups, or modify membership |
+| <sub>`search_contacts`</sub> | <sub>Core</sub> | <sub>Search contacts by name, email, phone</sub> |
+| <sub>`get_contact`</sub> | <sub>Core</sub> | <sub>Retrieve detailed contact info</sub> |
+| <sub>`list_contacts`</sub> | <sub>Core</sub> | <sub>List contacts with pagination</sub> |
+| <sub>`manage_contact`</sub> | <sub>Core</sub> | <sub>Create, update, or delete contacts</sub> |
+| <sub>`list_contact_groups`</sub> | <sub>Extended</sub> | <sub>List contact groups/labels</sub> |
+| <sub>`get_contact_group`</sub> | <sub>Extended</sub> | <sub>Get group details with members</sub> |
+| <sub>`manage_contacts_batch`</sub> | <sub>Complete</sub> | <sub>Batch create, update, or delete contacts</sub> |
+| <sub>`manage_contact_group`</sub> | <sub>Complete</sub> | <sub>Create, update, delete groups, or modify membership</sub> |
 
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
+#### 💬 Google Chat <sub>[`chat_tools.py`](gchat/chat_tools.py)</sub>
 
-### 💬 **Google Chat** <sub>[`chat_tools.py`](gchat/chat_tools.py)</sub>
-
-| Tool | Tier | Description |
+| <sub>Tool</sub> | <sub>Tier</sub> | <sub>Description</sub> |
 |------|------|-------------|
-| `list_spaces` | Extended | List chat spaces/rooms |
-| `get_messages` | **Core** | Retrieve space messages |
-| `send_message` | **Core** | Send messages to spaces |
-| `search_messages` | **Core** | Search across chat history |
-| `create_reaction` | **Core** | Add emoji reaction to a message |
-| `download_chat_attachment` | Extended | Download attachment from a chat message |
+| <sub>`list_spaces`</sub> | <sub>Extended</sub> | <sub>List chat spaces/rooms</sub> |
+| <sub>`get_messages`</sub> | <sub>Core</sub> | <sub>Retrieve space messages</sub> |
+| <sub>`send_message`</sub> | <sub>Core</sub> | <sub>Send messages to spaces</sub> |
+| <sub>`search_messages`</sub> | <sub>Core</sub> | <sub>Search across chat history</sub> |
+| <sub>`create_reaction`</sub> | <sub>Core</sub> | <sub>Add emoji reaction to a message</sub> |
+| <sub>`download_chat_attachment`</sub> | <sub>Extended</sub> | <sub>Download attachment from a chat message</sub> |
 
-</td>
-<td width="50%" valign="top">
+#### 🔍 Google Custom Search <sub>[`search_tools.py`](gsearch/search_tools.py)</sub>
 
-### 🔍 **Google Custom Search** <sub>[`search_tools.py`](gsearch/search_tools.py)</sub>
-
-| Tool | Tier | Description |
+| <sub>Tool</sub> | <sub>Tier</sub> | <sub>Description</sub> |
 |------|------|-------------|
-| `search_custom` | **Core** | Perform web searches (supports site restrictions via sites parameter) |
-| `get_search_engine_info` | Complete | Retrieve search engine metadata |
+| <sub>`search_custom`</sub> | <sub>Core</sub> | <sub>Perform web searches (supports site restrictions via sites parameter)</sub> |
+| <sub>`get_search_engine_info`</sub> | <sub>Complete</sub> | <sub>Retrieve search engine metadata</sub> |
 
-</td>
-</tr>
-<tr>
-<td colspan="2" valign="top">
+#### ⚡ Google Apps Script <sub>[`apps_script_tools.py`](gappsscript/apps_script_tools.py)</sub>
 
-### **Google Apps Script** <sub>[`apps_script_tools.py`](gappsscript/apps_script_tools.py)</sub>
-
-| Tool | Tier | Description |
+| <sub>Tool</sub> | <sub>Tier</sub> | <sub>Description</sub> |
 |------|------|-------------|
-| `list_script_projects` | **Core** | List accessible Apps Script projects |
-| `get_script_project` | **Core** | Get complete project with all files |
-| `get_script_content` | **Core** | Retrieve specific file content |
-| `create_script_project` | **Core** | Create new standalone or bound project |
-| `update_script_content` | **Core** | Update or create script files |
-| `run_script_function` | **Core** | Execute function with parameters |
-| `list_deployments` | Extended | List all project deployments |
-| `manage_deployment` | Extended | Create, update, or delete script deployments |
-| `list_script_processes` | Extended | View recent executions and status |
+| <sub>`list_script_projects`</sub> | <sub>Core</sub> | <sub>List accessible Apps Script projects</sub> |
+| <sub>`get_script_project`</sub> | <sub>Core</sub> | <sub>Get complete project with all files</sub> |
+| <sub>`get_script_content`</sub> | <sub>Core</sub> | <sub>Retrieve specific file content</sub> |
+| <sub>`create_script_project`</sub> | <sub>Core</sub> | <sub>Create new standalone or bound project</sub> |
+| <sub>`update_script_content`</sub> | <sub>Core</sub> | <sub>Update or create script files</sub> |
+| <sub>`run_script_function`</sub> | <sub>Core</sub> | <sub>Execute function with parameters</sub> |
+| <sub>`list_deployments`</sub> | <sub>Extended</sub> | <sub>List all project deployments</sub> |
+| <sub>`manage_deployment`</sub> | <sub>Extended</sub> | <sub>Create, update, or delete script deployments</sub> |
+| <sub>`list_script_processes`</sub> | <sub>Extended</sub> | <sub>View recent executions and status</sub> |
 
-</td>
-</tr>
-</table>
+<sub>
 
+**Tool Tier Legend:**<br>
+<span style="color:#2d5b69">●</span> **Core** — Essential tools for basic functionality · Minimal API usage · Getting started<br>
+<span style="color:#72898f">●</span> **Extended** — Core + additional features · Regular usage · Expanded capabilities<br>
+<span style="color:#adbcbc">●</span> **Complete** — All available tools including advanced features · Power users · Full API access
 
-**Tool Tier Legend:**
-- <span style="color:#2d5b69">•</span> **Core**: Essential tools for basic functionality • Minimal API usage • Getting started
-- <span style="color:#72898f">•</span> **Extended**: Core tools + additional features • Regular usage • Expanded capabilities
-- <span style="color:#adbcbc">•</span> **Complete**: All available tools including advanced features • Power users • Full API access
+</sub>
 
 ---
 

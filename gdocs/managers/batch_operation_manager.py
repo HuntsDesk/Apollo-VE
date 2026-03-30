@@ -14,16 +14,26 @@ from gdocs.docs_helpers import (
     create_delete_range_request,
     create_format_text_request,
     create_update_paragraph_style_request,
+    create_update_table_cell_style_request,
     create_find_replace_request,
     create_insert_table_request,
     create_insert_page_break_request,
+    create_insert_section_break_request,
+    create_insert_image_request,
     create_bullet_list_request,
     create_delete_bullet_list_request,
+    create_named_range_request,
+    create_delete_named_range_request,
+    create_replace_named_range_content_request,
+    create_update_document_style_request,
+    create_update_section_style_request,
+    create_create_header_footer_request,
     create_insert_doc_tab_request,
     create_delete_doc_tab_request,
     create_update_doc_tab_request,
     validate_operation,
 )
+from gdocs.managers.validation_manager import ValidationManager
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +56,7 @@ class BatchOperationManager:
             service: Google Docs API service instance
         """
         self.service = service
+        self.validation_manager = ValidationManager()
 
     async def execute_batch_operations(
         self, document_id: str, operations: list[dict[str, Any]]
@@ -73,6 +84,12 @@ class BatchOperationManager:
             )
 
         try:
+            preflight_error = await self._preflight_create_header_footer_operations(
+                document_id, operations
+            )
+            if preflight_error:
+                return False, preflight_error, {}
+
             # Validate and build requests
             requests, operation_descriptions = await self._validate_and_build_requests(
                 operations
@@ -92,6 +109,20 @@ class BatchOperationManager:
                 "operation_summary": operation_descriptions[:5],  # First 5 operations
             }
 
+            # Fetch document length after batch for downstream chaining
+            try:
+                doc = await asyncio.to_thread(
+                    self.service.documents()
+                    .get(documentId=document_id, fields="body/content(endIndex)")
+                    .execute
+                )
+                body_content = doc.get("body", {}).get("content", [])
+                metadata["document_length"] = (
+                    body_content[-1].get("endIndex", 0) if body_content else 1
+                )
+            except Exception:
+                metadata["document_length"] = None
+
             # Extract new tab IDs from insert_doc_tab replies
             created_tabs = self._extract_created_tabs(result)
             if created_tabs:
@@ -108,8 +139,81 @@ class BatchOperationManager:
             return True, msg, metadata
 
         except Exception as e:
-            logger.error(f"Failed to execute batch operations: {str(e)}")
-            return False, f"Batch operation failed: {str(e)}", {}
+            error_msg = self._rewrite_execution_error(str(e), operations)
+            logger.error(f"Failed to execute batch operations: {error_msg}")
+            return False, error_msg, {}
+
+    async def _preflight_create_header_footer_operations(
+        self, document_id: str, operations: list[dict[str, Any]]
+    ) -> str | None:
+        """
+        Validate create_header_footer operations against the live document before
+        sending low-level Docs API requests that often fail opaquely.
+        """
+        create_ops = [
+            op for op in operations if op.get("type") == "create_header_footer"
+        ]
+        if not create_ops:
+            return None
+
+        doc = await asyncio.to_thread(
+            self.service.documents().get(documentId=document_id).execute
+        )
+
+        style_field_map = {
+            "header": {
+                "DEFAULT": "defaultHeaderId",
+                "FIRST_PAGE_ONLY": "firstPageHeaderId",
+                "EVEN_PAGE": "evenPageHeaderId",
+            },
+            "footer": {
+                "DEFAULT": "defaultFooterId",
+                "FIRST_PAGE_ONLY": "firstPageFooterId",
+                "EVEN_PAGE": "evenPageFooterId",
+            },
+        }
+
+        section_breaks: dict[int, dict[str, Any]] = {}
+        for element in doc.get("body", {}).get("content", []):
+            if "sectionBreak" in element:
+                section_breaks[element.get("startIndex", 0)] = element["sectionBreak"]
+
+        for op in create_ops:
+            section_type = op["section_type"]
+            header_footer_type = op.get("header_footer_type", "DEFAULT")
+            style_field = style_field_map[section_type][header_footer_type]
+            section_break_index = op.get("section_break_index")
+
+            if section_break_index is None:
+                if doc.get("documentStyle", {}).get(style_field):
+                    return (
+                        "Batch operation failed: the requested header/footer already exists. "
+                        "For normal header or footer text, use update_doc_headers_footers "
+                        "instead of batch_update_doc with create_header_footer. "
+                        "Reserve create_header_footer for advanced section-break layouts."
+                    )
+                continue
+
+            if section_break_index not in section_breaks:
+                available = sorted(section_breaks.keys())
+                return (
+                    "Batch operation failed: section_break_index must match an existing "
+                    "section break start index from inspect_doc_structure.section_breaks[]. "
+                    f"Got {section_break_index}. Available section break indices: {available or 'none'}. "
+                    "For normal header/footer text, use update_doc_headers_footers instead."
+                )
+
+            if section_breaks[section_break_index].get("sectionStyle", {}).get(
+                style_field
+            ):
+                return (
+                    "Batch operation failed: the requested section-scoped header/footer "
+                    "already exists at that section break. Use inspect_doc_structure to "
+                    "find real section breaks, or use update_doc_headers_footers for "
+                    "ordinary header/footer text."
+                )
+
+        return None
 
     async def _validate_and_build_requests(
         self, operations: list[dict[str, Any]]
@@ -174,26 +278,45 @@ class BatchOperationManager:
             Tuple of (request, description)
         """
         tab_id = op.get("tab_id")
+        segment_id = op.get("segment_id")
+        end_of_segment = op.get("end_of_segment", False)
 
         if op_type == "insert_text":
-            request = create_insert_text_request(op["index"], op["text"], tab_id)
-            description = f"insert text at {op['index']}"
+            request = create_insert_text_request(
+                op.get("index"),
+                op["text"],
+                tab_id,
+                segment_id=segment_id,
+                end_of_segment=end_of_segment,
+            )
+            description = (
+                f"insert text at end of segment '{segment_id or 'body'}'"
+                if end_of_segment
+                else f"insert text at {op['index']}"
+            )
 
         elif op_type == "delete_text":
             request = create_delete_range_request(
-                op["start_index"], op["end_index"], tab_id
+                op["start_index"],
+                op["end_index"],
+                tab_id,
+                segment_id=segment_id,
             )
             description = f"delete text {op['start_index']}-{op['end_index']}"
 
         elif op_type == "replace_text":
-            # Replace is delete + insert (must be done in this order)
             delete_request = create_delete_range_request(
-                op["start_index"], op["end_index"], tab_id
+                op["start_index"],
+                op["end_index"],
+                tab_id,
+                segment_id=segment_id,
             )
             insert_request = create_insert_text_request(
-                op["start_index"], op["text"], tab_id
+                op["start_index"],
+                op["text"],
+                tab_id,
+                segment_id=segment_id,
             )
-            # Return both requests as a list
             request = [delete_request, insert_request]
             description = f"replace text {op['start_index']}-{op['end_index']} with '{op['text'][:20]}{'...' if len(op['text']) > 20 else ''}'"
 
@@ -207,16 +330,20 @@ class BatchOperationManager:
                 op.get("strikethrough"),
                 op.get("font_size"),
                 op.get("font_family"),
+                op.get("font_weight"),
                 op.get("text_color"),
                 op.get("background_color"),
                 op.get("link_url"),
+                op.get("clear_link"),
+                op.get("baseline_offset"),
+                op.get("small_caps"),
                 tab_id,
+                segment_id,
             )
 
             if not request:
                 raise ValueError("No formatting options provided")
 
-            # Build format description
             format_changes = []
             for param, name in [
                 ("bold", "bold"),
@@ -225,12 +352,21 @@ class BatchOperationManager:
                 ("strikethrough", "strikethrough"),
                 ("font_size", "font size"),
                 ("font_family", "font family"),
+                ("font_weight", "font weight"),
                 ("text_color", "text color"),
                 ("background_color", "background color"),
                 ("link_url", "link"),
+                ("clear_link", "clear link"),
+                ("baseline_offset", "baseline offset"),
+                ("small_caps", "small caps"),
             ]:
                 if op.get(param) is not None:
-                    value = f"{op[param]}pt" if param == "font_size" else op[param]
+                    if param == "font_size":
+                        value = f"{op[param]}pt"
+                    elif param == "font_weight":
+                        value = f"{op[param]}w"
+                    else:
+                        value = op[param]
                     format_changes.append(f"{name}: {value}")
 
             description = f"format text {op['start_index']}-{op['end_index']} ({', '.join(format_changes)})"
@@ -249,6 +385,14 @@ class BatchOperationManager:
                 op.get("space_below"),
                 tab_id,
                 op.get("named_style_type"),
+                segment_id,
+                op.get("direction"),
+                op.get("keep_lines_together"),
+                op.get("keep_with_next"),
+                op.get("avoid_widow_and_orphan"),
+                op.get("page_break_before"),
+                op.get("spacing_mode"),
+                op.get("shading_color"),
             )
 
             if not request:
@@ -277,6 +421,13 @@ class BatchOperationManager:
                 ("space_above", "space above"),
                 ("space_below", "space below"),
                 ("named_style_type", "named style"),
+                ("direction", "direction"),
+                ("keep_lines_together", "keep lines together"),
+                ("keep_with_next", "keep with next"),
+                ("avoid_widow_and_orphan", "avoid widow/orphan"),
+                ("page_break_before", "page break before"),
+                ("spacing_mode", "spacing mode"),
+                ("shading_color", "shading"),
             ]:
                 if op.get(param) is not None:
                     raw = op[param]
@@ -291,15 +442,97 @@ class BatchOperationManager:
 
             description = f"paragraph style {op['start_index']}-{op['end_index']} ({', '.join(style_changes)})"
 
+        elif op_type == "update_table_cell_style":
+            is_valid, error_msg = (
+                self.validation_manager.validate_table_cell_style_params(
+                    background_color=op.get("background_color"),
+                    border_color=op.get("border_color"),
+                    border_width=op.get("border_width"),
+                    row_index=op.get("row_index"),
+                    column_index=op.get("column_index"),
+                    row_span=op.get("row_span"),
+                    column_span=op.get("column_span"),
+                )
+            )
+            if not is_valid:
+                raise ValueError(error_msg)
+
+            request = create_update_table_cell_style_request(
+                table_start_index=op["table_start_index"],
+                background_color=op.get("background_color"),
+                border_color=op.get("border_color"),
+                border_width=op.get("border_width"),
+                row_index=op.get("row_index"),
+                column_index=op.get("column_index"),
+                row_span=op.get("row_span"),
+                column_span=op.get("column_span"),
+                tab_id=tab_id,
+            )
+
+            if not request:
+                raise ValueError("No table cell style options provided")
+
+            style_changes = []
+            for param, name in [
+                ("background_color", "background"),
+                ("border_color", "border color"),
+                ("border_width", "border width"),
+            ]:
+                if op.get(param) is not None:
+                    value = f"{op[param]}pt" if param == "border_width" else op[param]
+                    style_changes.append(f"{name}: {value}")
+
+            if op.get("row_index") is not None:
+                row_span = op.get("row_span", 1)
+                column_span = op.get("column_span", 1)
+                target = (
+                    f"row {op['row_index']}, column {op['column_index']}, "
+                    f"span {row_span}x{column_span}"
+                )
+            else:
+                target = "entire table"
+
+            description = (
+                f"table cell style at {op['table_start_index']} "
+                f"({target}; {', '.join(style_changes)})"
+            )
+
         elif op_type == "insert_table":
             request = create_insert_table_request(
-                op["index"], op["rows"], op["columns"], tab_id
+                op.get("index"),
+                op["rows"],
+                op["columns"],
+                tab_id,
+                segment_id=segment_id,
+                end_of_segment=end_of_segment,
             )
-            description = f"insert {op['rows']}x{op['columns']} table at {op['index']}"
+            description = (
+                f"insert {op['rows']}x{op['columns']} table at end of segment '{segment_id or 'body'}'"
+                if end_of_segment
+                else f"insert {op['rows']}x{op['columns']} table at {op['index']}"
+            )
 
         elif op_type == "insert_page_break":
-            request = create_insert_page_break_request(op["index"], tab_id)
-            description = f"insert page break at {op['index']}"
+            request = create_insert_page_break_request(
+                op.get("index"), tab_id, end_of_segment=end_of_segment
+            )
+            description = (
+                "insert page break at end of body"
+                if end_of_segment
+                else f"insert page break at {op['index']}"
+            )
+
+        elif op_type == "insert_section_break":
+            request = create_insert_section_break_request(
+                op.get("index"),
+                op.get("section_type", "NEXT_PAGE"),
+                end_of_segment=end_of_segment,
+            )
+            description = (
+                f"insert {op.get('section_type', 'NEXT_PAGE')} section break at end of body"
+                if end_of_segment
+                else f"insert {op.get('section_type', 'NEXT_PAGE')} section break at {op.get('index')}"
+            )
 
         elif op_type == "find_replace":
             request = create_find_replace_request(
@@ -309,13 +542,13 @@ class BatchOperationManager:
 
         elif op_type == "create_bullet_list":
             list_type = op.get("list_type", "UNORDERED")
-            if list_type not in ("UNORDERED", "ORDERED", "NONE"):
+            if list_type not in ("UNORDERED", "ORDERED", "CHECKBOX", "NONE"):
                 raise ValueError(
-                    f"Invalid list_type '{list_type}'. Must be 'UNORDERED', 'ORDERED', or 'NONE'"
+                    f"Invalid list_type '{list_type}'. Must be 'UNORDERED', 'ORDERED', 'CHECKBOX', or 'NONE'"
                 )
             if list_type == "NONE":
                 request = create_delete_bullet_list_request(
-                    op["start_index"], op["end_index"], tab_id
+                    op["start_index"], op["end_index"], tab_id, segment_id=segment_id
                 )
                 description = f"remove bullets {op['start_index']}-{op['end_index']}"
             else:
@@ -326,13 +559,124 @@ class BatchOperationManager:
                     op.get("nesting_level"),
                     op.get("paragraph_start_indices"),
                     tab_id,
+                    op.get("bullet_preset"),
+                    segment_id=segment_id,
                 )
-                style = "bulleted" if list_type == "UNORDERED" else "numbered"
+                if list_type == "UNORDERED":
+                    style = "bulleted"
+                elif list_type == "CHECKBOX":
+                    style = "checkbox"
+                else:
+                    style = "numbered"
                 description = (
                     f"create {style} list {op['start_index']}-{op['end_index']}"
                 )
                 if op.get("nesting_level"):
                     description += f" (nesting level {op['nesting_level']})"
+                if op.get("bullet_preset"):
+                    description += f" using {op['bullet_preset']}"
+
+        elif op_type == "create_named_range":
+            request = create_named_range_request(
+                op["name"],
+                op["start_index"],
+                op["end_index"],
+                tab_id=tab_id,
+                segment_id=segment_id,
+            )
+            description = (
+                f"create named range '{op['name']}' "
+                f"{op['start_index']}-{op['end_index']}"
+            )
+
+        elif op_type == "replace_named_range_content":
+            request = create_replace_named_range_content_request(
+                op["text"],
+                named_range_id=op.get("named_range_id"),
+                named_range_name=op.get("named_range_name"),
+                tab_id=tab_id,
+            )
+            target = op.get("named_range_id") or op.get("named_range_name")
+            description = f"replace named range content for '{target}'"
+
+        elif op_type == "delete_named_range":
+            request = create_delete_named_range_request(
+                named_range_id=op.get("named_range_id"),
+                named_range_name=op.get("named_range_name"),
+                tab_id=tab_id,
+            )
+            target = op.get("named_range_id") or op.get("named_range_name")
+            description = f"delete named range '{target}'"
+
+        elif op_type == "update_document_style":
+            request = create_update_document_style_request(
+                tab_id=tab_id,
+                background_color=op.get("background_color"),
+                margin_top=op.get("margin_top"),
+                margin_bottom=op.get("margin_bottom"),
+                margin_left=op.get("margin_left"),
+                margin_right=op.get("margin_right"),
+                margin_header=op.get("margin_header"),
+                margin_footer=op.get("margin_footer"),
+                page_width=op.get("page_width"),
+                page_height=op.get("page_height"),
+                page_number_start=op.get("page_number_start"),
+                use_even_page_header_footer=op.get("use_even_page_header_footer"),
+                use_first_page_header_footer=op.get("use_first_page_header_footer"),
+                flip_page_orientation=op.get("flip_page_orientation"),
+                document_mode=op.get("document_mode"),
+            )
+            if not request:
+                raise ValueError("No document style options provided")
+            description = "update document style"
+
+        elif op_type == "update_section_style":
+            request = create_update_section_style_request(
+                op["start_index"],
+                op["end_index"],
+                margin_top=op.get("margin_top"),
+                margin_bottom=op.get("margin_bottom"),
+                margin_left=op.get("margin_left"),
+                margin_right=op.get("margin_right"),
+                margin_header=op.get("margin_header"),
+                margin_footer=op.get("margin_footer"),
+                page_number_start=op.get("page_number_start"),
+                use_first_page_header_footer=op.get("use_first_page_header_footer"),
+                flip_page_orientation=op.get("flip_page_orientation"),
+                content_direction=op.get("content_direction"),
+                column_count=op.get("column_count"),
+                column_spacing=op.get("column_spacing"),
+                column_separator_style=op.get("column_separator_style"),
+            )
+            if not request:
+                raise ValueError("No section style options provided")
+            description = f"update section style {op['start_index']}-{op['end_index']}"
+
+        elif op_type == "create_header_footer":
+            request = create_create_header_footer_request(
+                op["section_type"],
+                op.get("header_footer_type", "DEFAULT"),
+                op.get("section_break_index"),
+            )
+            description = (
+                f"create {op['section_type']} ({op.get('header_footer_type', 'DEFAULT')})"
+            )
+
+        elif op_type == "insert_image":
+            request = create_insert_image_request(
+                op.get("index"),
+                op["image_uri"],
+                op.get("width"),
+                op.get("height"),
+                tab_id,
+                segment_id=segment_id,
+                end_of_segment=end_of_segment,
+            )
+            description = (
+                f"insert image at end of segment '{segment_id or 'body'}'"
+                if end_of_segment
+                else f"insert image at {op.get('index')}"
+            )
 
         elif op_type == "insert_doc_tab":
             request = create_insert_doc_tab_request(
@@ -357,10 +701,19 @@ class BatchOperationManager:
                 "replace_text",
                 "format_text",
                 "update_paragraph_style",
+                "update_table_cell_style",
                 "insert_table",
                 "insert_page_break",
+                "insert_section_break",
                 "find_replace",
                 "create_bullet_list",
+                "create_named_range",
+                "replace_named_range_content",
+                "delete_named_range",
+                "update_document_style",
+                "update_section_style",
+                "create_header_footer",
+                "insert_image",
                 "insert_doc_tab",
                 "delete_doc_tab",
                 "update_doc_tab",
@@ -432,6 +785,29 @@ class BatchOperationManager:
 
         return summary
 
+    def _rewrite_execution_error(
+        self, error_msg: str, operations: list[dict[str, Any]]
+    ) -> str:
+        """
+        Rewrite common API failures into actionable guidance for tool callers.
+        """
+        lowered = error_msg.lower()
+        requested_header_footer_creation = any(
+            op.get("type") == "create_header_footer" for op in operations
+        )
+
+        if requested_header_footer_creation and "already exists" in lowered and (
+            "createheader" in lowered or "createfooter" in lowered
+        ):
+            return (
+                "Batch operation failed: the requested header/footer already exists. "
+                "For normal header or footer text, use update_doc_headers_footers "
+                "instead of batch_update_doc with create_header_footer. "
+                "Reserve create_header_footer for advanced section-break layouts."
+            )
+
+        return f"Batch operation failed: {error_msg}"
+
     def get_supported_operations(self) -> dict[str, Any]:
         """
         Get information about supported batch operations.
@@ -462,9 +838,15 @@ class BatchOperationManager:
                         "strikethrough",
                         "font_size",
                         "font_family",
+                        "font_weight",
                         "text_color",
                         "background_color",
                         "link_url",
+                        "clear_link",
+                        "baseline_offset",
+                        "small_caps",
+                        "segment_id",
+                        "tab_id",
                     ],
                     "description": "Apply formatting to text range",
                 },
@@ -480,16 +862,45 @@ class BatchOperationManager:
                         "space_above",
                         "space_below",
                         "named_style_type",
+                        "direction",
+                        "keep_lines_together",
+                        "keep_with_next",
+                        "avoid_widow_and_orphan",
+                        "page_break_before",
+                        "spacing_mode",
+                        "shading_color",
+                        "segment_id",
+                        "tab_id",
                     ],
                     "description": "Apply paragraph-level styling (headings, named styles like TITLE/SUBTITLE, alignment, spacing, indentation)",
                 },
+                "update_table_cell_style": {
+                    "required": ["table_start_index"],
+                    "optional": [
+                        "background_color",
+                        "border_color",
+                        "border_width",
+                        "row_index",
+                        "column_index",
+                        "row_span",
+                        "column_span",
+                    ],
+                    "description": "Apply table cell styling to an entire table or a targeted cell range",
+                },
                 "insert_table": {
-                    "required": ["index", "rows", "columns"],
-                    "description": "Insert table at specified index",
+                    "required": ["rows", "columns"],
+                    "optional": ["index", "end_of_segment", "segment_id", "tab_id"],
+                    "description": "Insert table at specified index or end of a segment",
                 },
                 "insert_page_break": {
-                    "required": ["index"],
-                    "description": "Insert page break at specified index",
+                    "required": [],
+                    "optional": ["index", "end_of_segment", "tab_id"],
+                    "description": "Insert page break at specified index or end of body",
+                },
+                "insert_section_break": {
+                    "required": [],
+                    "optional": ["index", "end_of_segment", "section_type"],
+                    "description": "Insert a CONTINUOUS or NEXT_PAGE section break",
                 },
                 "find_replace": {
                     "required": ["find_text", "replace_text"],
@@ -502,8 +913,81 @@ class BatchOperationManager:
                         "list_type",
                         "nesting_level",
                         "paragraph_start_indices",
+                        "bullet_preset",
                     ],
-                    "description": "Apply or remove native bullet/numbered list formatting (list_type: UNORDERED, ORDERED, or NONE to remove; nesting_level: 0-8)",
+                    "description": "Apply or remove native bullet/numbered/checklist formatting (list_type: UNORDERED, ORDERED, CHECKBOX, or NONE to remove; nesting_level: 0-8)",
+                },
+                "create_named_range": {
+                    "required": ["name", "start_index", "end_index"],
+                    "optional": ["tab_id", "segment_id"],
+                    "description": "Create a named range anchor over a range",
+                },
+                "replace_named_range_content": {
+                    "required": ["text"],
+                    "optional": ["named_range_id", "named_range_name", "tab_id"],
+                    "description": "Replace the content of one or more named ranges",
+                },
+                "delete_named_range": {
+                    "required": [],
+                    "optional": ["named_range_id", "named_range_name", "tab_id"],
+                    "description": "Delete a named range by ID or name",
+                },
+                "update_document_style": {
+                    "required": [],
+                    "optional": [
+                        "background_color",
+                        "margin_top",
+                        "margin_bottom",
+                        "margin_left",
+                        "margin_right",
+                        "margin_header",
+                        "margin_footer",
+                        "page_width",
+                        "page_height",
+                        "page_number_start",
+                        "use_even_page_header_footer",
+                        "use_first_page_header_footer",
+                        "flip_page_orientation",
+                        "document_mode",
+                        "tab_id",
+                    ],
+                    "description": "Update document-level layout settings such as margins, page size, headers/footers, and background",
+                },
+                "update_section_style": {
+                    "required": ["start_index", "end_index"],
+                    "optional": [
+                        "margin_top",
+                        "margin_bottom",
+                        "margin_left",
+                        "margin_right",
+                        "margin_header",
+                        "margin_footer",
+                        "page_number_start",
+                        "use_first_page_header_footer",
+                        "flip_page_orientation",
+                        "content_direction",
+                        "column_count",
+                        "column_spacing",
+                        "column_separator_style",
+                    ],
+                    "description": "Update section-specific layout such as margins, pagination, orientation, and columns",
+                },
+                "create_header_footer": {
+                    "required": ["section_type"],
+                    "optional": ["header_footer_type", "section_break_index"],
+                    "description": "Create a header or footer, optionally tied to a section break",
+                },
+                "insert_image": {
+                    "required": ["image_uri"],
+                    "optional": [
+                        "index",
+                        "end_of_segment",
+                        "segment_id",
+                        "tab_id",
+                        "width",
+                        "height",
+                    ],
+                    "description": "Insert an inline image at a location or at the end of a segment",
                 },
                 "insert_doc_tab": {
                     "required": ["title", "index"],

@@ -2,7 +2,7 @@
   "dxt_version": "0.1",
   "name": "workspace-mcp",
   "display_name": "Google Workspace MCP",
-  "version": "1.16.0",
+  "version": "1.16.2",
   "description": "Full natural language control over Google Calendar, Drive, Gmail, Docs, Sheets, Slides, Forms, Tasks, Chat and Custom Search through all MCP clients, AI assistants and developer tools",
   "long_description": "A production-ready MCP server that integrates all major Google Workspace services with AI assistants. Includes Google PSE integration for custom web searches.",
   "author": {
@@ -56,7 +56,7 @@
     },
     {
       "name": "google_docs",
-      "description": "Manage Google Docs through AI with capability to search, extract, list, create and copy - including templated variable replacement support"
+      "description": "Manage Google Docs through AI with support for search, extraction, creation, structured editing, named ranges, layout and section formatting, headers/footers, rich styling, and atomic batch document generation"
     },
     {
       "name": "google_sheets",

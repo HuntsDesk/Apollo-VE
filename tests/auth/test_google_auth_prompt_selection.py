@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+from google.auth.exceptions import RefreshError
+
 from auth.google_auth import _determine_oauth_prompt
 
 
@@ -23,8 +25,8 @@ class _DummySessionStore:
         return self._credentials_by_session.get(mcp_session_id)
 
 
-def _credentials_with_scopes(scopes):
-    return SimpleNamespace(scopes=scopes)
+def _credentials_with_scopes(scopes, valid=True, refresh_token="fake-token"):
+    return SimpleNamespace(scopes=scopes, valid=valid, refresh_token=refresh_token)
 
 
 def test_prompt_select_account_when_existing_credentials_cover_scopes(monkeypatch):
@@ -36,7 +38,7 @@ def test_prompt_select_account_when_existing_credentials_cover_scopes(monkeypatc
     monkeypatch.setattr(
         "auth.google_auth.get_credential_store",
         lambda: _DummyCredentialStore(
-            {"user@gmail.com": _credentials_with_scopes(required_scopes)}
+            {"user@gmail.com": _credentials_with_scopes(required_scopes, valid=True)}
         ),
     )
     monkeypatch.setattr("auth.google_auth.is_stateless_mode", lambda: False)
@@ -48,6 +50,36 @@ def test_prompt_select_account_when_existing_credentials_cover_scopes(monkeypatc
     )
 
     assert prompt == "select_account"
+
+
+def test_prompt_consent_when_credentials_revoked(monkeypatch):
+    """When credentials have required scopes but refresh fails (revoked),
+    prompt must be 'consent' so Google performs full re-authorization."""
+    required_scopes = ["scope.a", "scope.b"]
+
+    def _raise_on_refresh(_self, _request):
+        raise RefreshError("invalid_grant: Token has been revoked")
+
+    creds = _credentials_with_scopes(required_scopes, valid=False)
+    creds.refresh = _raise_on_refresh.__get__(creds)
+
+    monkeypatch.setattr(
+        "auth.google_auth.get_oauth21_session_store",
+        lambda: _DummySessionStore(),
+    )
+    monkeypatch.setattr(
+        "auth.google_auth.get_credential_store",
+        lambda: _DummyCredentialStore({"user@gmail.com": creds}),
+    )
+    monkeypatch.setattr("auth.google_auth.is_stateless_mode", lambda: False)
+
+    prompt = _determine_oauth_prompt(
+        user_google_email="user@gmail.com",
+        required_scopes=required_scopes,
+        session_id=None,
+    )
+
+    assert prompt == "consent"
 
 
 def test_prompt_consent_when_existing_credentials_missing_scopes(monkeypatch):
@@ -100,7 +132,7 @@ def test_prompt_uses_session_mapping_when_email_not_provided(monkeypatch):
         lambda: _DummySessionStore(
             user_by_session={session_id: "mapped@gmail.com"},
             credentials_by_session={
-                session_id: _credentials_with_scopes(required_scopes)
+                session_id: _credentials_with_scopes(required_scopes, valid=True)
             },
         ),
     )

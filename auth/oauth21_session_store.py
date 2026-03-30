@@ -295,6 +295,34 @@ class OAuth21SessionStore:
             )
             return state_info
 
+    def consume_latest_oauth_state(self) -> Optional[Dict[str, Any]]:
+        """
+        Consume and return the most recently created OAuth state.
+
+        Used as a fallback when the callback URL is missing the state parameter
+        (e.g. in stdio mode with certain Google OAuth prompt types).
+
+        Returns:
+            State metadata dict, or None if no states are stored.
+        """
+        with self._lock:
+            self._cleanup_expired_oauth_states_locked()
+            if not self._oauth_states:
+                return None
+            latest_state = max(
+                self._oauth_states.keys(),
+                key=lambda s: self._oauth_states[s].get(
+                    "created_at",
+                    datetime.min.replace(tzinfo=timezone.utc),
+                ),
+            )
+            state_info = self._oauth_states.pop(latest_state)
+            logger.debug(
+                "Consumed latest OAuth state %s as fallback",
+                latest_state[:8] if len(latest_state) > 8 else latest_state,
+            )
+            return state_info
+
     def store_session(
         self,
         user_email: str,
