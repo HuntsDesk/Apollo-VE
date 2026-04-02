@@ -33,6 +33,7 @@ from gdocs.docs_helpers import (
     create_insert_doc_tab_request,
     create_update_doc_tab_request,
     create_delete_doc_tab_request,
+    create_update_paragraph_style_request,
     validate_suggestions_view_mode,
     create_update_paragraph_style_request,
 )
@@ -2240,15 +2241,25 @@ async def get_doc_as_markdown(
         f"[get_doc_as_markdown] Doc={document_id}, comments={include_comments}, mode={comment_mode}"
     )
 
-    # Fetch document content via Docs API
-    doc = await asyncio.to_thread(
-        docs_service.documents()
-        .get(
-            documentId=document_id,
-            suggestionsViewMode=suggestions_view_mode,
+    # Fetch document content via Docs API (includeTabsContent for multi-tab docs)
+    try:
+        doc = await asyncio.wait_for(
+            asyncio.to_thread(
+                docs_service.documents()
+                .get(
+                    documentId=document_id,
+                    includeTabsContent=True,
+                    suggestionsViewMode=suggestions_view_mode,
+                )
+                .execute
+            ),
+            timeout=30,
         )
-        .execute
-    )
+    except (TimeoutError, asyncio.TimeoutError):
+        return (
+            f"Error: Timed out fetching document {document_id} from Google Docs API. "
+            "The document may be too large or there may be a network issue. Please try again."
+        )
 
     markdown = convert_doc_to_markdown(doc)
 
