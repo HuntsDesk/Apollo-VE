@@ -298,6 +298,7 @@ def _format_attachment_details(
 def _correct_time_format_for_api(
     time_str: Optional[str], param_name: str, timezone: Optional[str] = None
 ) -> Optional[str]:
+    """Normalize a time string into RFC3339 format suitable for the Google Calendar API."""
     if not time_str:
         return None
 
@@ -318,7 +319,11 @@ def _correct_time_format_for_api(
                     date_obj = datetime.datetime.strptime(time_str, "%Y-%m-%d")
                     dt = tz.localize(date_obj)
                     # Convert to UTC and format as RFC3339
-                    formatted = dt.astimezone(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+                    formatted = (
+                        dt.astimezone(datetime.timezone.utc)
+                        .isoformat()
+                        .replace("+00:00", "Z")
+                    )
                 except pytz.exceptions.UnknownTimeZoneError:
                     logger.warning(
                         f"Could not apply timezone '{timezone}', falling back to UTC for {param_name}"
@@ -361,6 +366,31 @@ def _correct_time_format_for_api(
     # If it already has timezone info or doesn't match our patterns, return as is
     logger.info(f"{param_name} '{time_str}' doesn't need formatting, using as is.")
     return time_str
+
+
+def _strip_utc_offset(datetime_str: str) -> str:
+    """Strip UTC offset from an RFC3339 dateTime string, returning a naive local time.
+
+    When an IANA timezone (e.g. America/Los_Angeles) is provided alongside a dateTime,
+    the Google Calendar API uses the explicit offset from dateTime for scheduling and
+    only uses the IANA timezone for recurrence expansion. This means an LLM-generated
+    offset that doesn't account for DST (e.g. -08:00 during PDT) will place the event
+    at the wrong wall-clock time.
+
+    By stripping the offset and keeping only the naive local time + IANA timeZone,
+    Google Calendar resolves the correct DST-aware offset automatically.
+
+    Examples:
+        "2026-03-19T12:00:00-08:00" → "2026-03-19T12:00:00"
+        "2026-03-19T12:00:00-07:00" → "2026-03-19T12:00:00"
+        "2026-03-19T12:00:00Z"      → "2026-03-19T12:00:00"
+        "2026-03-19T12:00:00"       → "2026-03-19T12:00:00" (no-op)
+    """
+    # Strip trailing Z
+    if datetime_str.endswith("Z"):
+        return datetime_str[:-1]
+    # Strip +HH:MM or -HH:MM offset at end (e.g. -07:00, +05:30)
+    return re.sub(r"[+-]\d{2}:\d{2}$", "", datetime_str)
 
 
 @server.tool()
@@ -651,12 +681,24 @@ async def _create_event_impl(
         logger.info(
             f"[create_event] Parsed attachments list from string: {attachments}"
         )
+    # When an IANA timezone is provided, strip any UTC offset from dateTime values
+    # so Google Calendar resolves the correct DST-aware offset from the IANA name.
+    effective_start = start_time
+    effective_end = end_time
+    if timezone and "T" in start_time:
+        effective_start = _strip_utc_offset(start_time)
+    if timezone and "T" in end_time:
+        effective_end = _strip_utc_offset(end_time)
     event_body: Dict[str, Any] = {
         "summary": summary,
         "start": (
-            {"date": start_time} if "T" not in start_time else {"dateTime": start_time}
+            {"date": start_time}
+            if "T" not in start_time
+            else {"dateTime": effective_start}
         ),
-        "end": ({"date": end_time} if "T" not in end_time else {"dateTime": end_time}),
+        "end": (
+            {"date": end_time} if "T" not in end_time else {"dateTime": effective_end}
+        ),
     }
     if recurrence:
         event_body["recurrence"] = recurrence
@@ -901,14 +943,22 @@ async def _modify_event_impl(
     if summary is not None:
         event_body["summary"] = summary
     if start_time is not None:
+        effective_start = start_time
+        if timezone is not None and "T" in start_time:
+            effective_start = _strip_utc_offset(start_time)
         event_body["start"] = (
-            {"date": start_time} if "T" not in start_time else {"dateTime": start_time}
+            {"date": start_time}
+            if "T" not in start_time
+            else {"dateTime": effective_start}
         )
         if timezone is not None and "dateTime" in event_body["start"]:
             event_body["start"]["timeZone"] = timezone
     if end_time is not None:
+        effective_end = end_time
+        if timezone is not None and "T" in end_time:
+            effective_end = _strip_utc_offset(end_time)
         event_body["end"] = (
-            {"date": end_time} if "T" not in end_time else {"dateTime": end_time}
+            {"date": end_time} if "T" not in end_time else {"dateTime": effective_end}
         )
         if timezone is not None and "dateTime" in event_body["end"]:
             event_body["end"]["timeZone"] = timezone
@@ -1157,6 +1207,72 @@ async def _delete_event_impl(
     return confirmation_message
 
 
+async def _rsvp_event_impl(
+    service,
+    user_google_email: str,
+    event_id: str,
+    response: str,
+    calendar_id: str = "primary",
+    comment: Optional[str] = None,
+    send_updates: str = "all",
+) -> str:
+    """Internal implementation for responding to a calendar event invitation."""
+    valid_responses = {"accepted", "declined", "tentative", "needsAction"}
+    if response not in valid_responses:
+        raise ValueError(
+            f"Invalid response '{response}'. Must be one of: {sorted(valid_responses)}"
+        )
+
+    valid_send_updates = {"all", "externalOnly", "none"}
+    if send_updates not in valid_send_updates:
+        raise ValueError(
+            f"Invalid send_updates '{send_updates}'. Must be one of: {sorted(valid_send_updates)}"
+        )
+
+    existing_event = await asyncio.to_thread(
+        lambda: service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+    )
+
+    attendees = existing_event.get("attendees")
+    if not attendees:
+        raise Exception("This event has no attendee list; cannot update RSVP.")
+
+    if existing_event.get("organizer", {}).get("self"):
+        raise Exception(
+            "You are the organizer of this event. Organizers cannot respond to their own invitations."
+        )
+
+    user_index = next((i for i, a in enumerate(attendees) if a.get("self")), None)
+    if user_index is None:
+        raise Exception(
+            f"{user_google_email} was not found in the event's attendee list."
+        )
+
+    updated_attendees = [dict(a) for a in attendees]
+    updated_attendees[user_index]["responseStatus"] = response
+    if comment is not None:
+        updated_attendees[user_index]["comment"] = comment
+
+    updated_event = await asyncio.to_thread(
+        lambda: (
+            service.events()
+            .patch(
+                calendarId=calendar_id,
+                eventId=event_id,
+                body={"attendees": updated_attendees},
+                sendUpdates=send_updates,
+            )
+            .execute()
+        )
+    )
+
+    summary = updated_event.get("summary", "Unknown event")
+    logger.info(
+        f"[rsvp_event] RSVP for '{summary}' (ID: {event_id}) set to '{response}' for {user_google_email}."
+    )
+    return f"Successfully updated RSVP for '{summary}' (ID: {event_id}) to '{response}' for {user_google_email}."
+
+
 # ---------------------------------------------------------------------------
 # Consolidated event management tool
 # ---------------------------------------------------------------------------
@@ -1189,13 +1305,16 @@ async def manage_event(
     guests_can_modify: Optional[bool] = None,
     guests_can_invite_others: Optional[bool] = None,
     guests_can_see_other_guests: Optional[bool] = None,
+    response: Optional[str] = None,
+    rsvp_comment: Optional[str] = None,
+    send_updates: Optional[str] = None,
 ) -> str:
     """
-    Manages calendar events. Supports creating, updating, and deleting events.
+    Manages calendar events. Supports creating, updating, deleting, and RSVP.
 
     Args:
         user_google_email (str): The user's Google email address. Required.
-        action (str): Action to perform - "create", "update", or "delete".
+        action (str): Action to perform - "create", "update", "delete", or "rsvp".
         summary (Optional[str]): Event title (required for create).
         start_time (Optional[str]): Start time in RFC3339 format (required for create).
         end_time (Optional[str]): End time in RFC3339 format (required for create).
@@ -1216,6 +1335,9 @@ async def manage_event(
         guests_can_modify (Optional[bool]): Whether attendees can modify.
         guests_can_invite_others (Optional[bool]): Whether attendees can invite others.
         guests_can_see_other_guests (Optional[bool]): Whether attendees can see other guests.
+        response (Optional[str]): RSVP response — "accepted", "declined", "tentative", or "needsAction" (rsvp action only).
+        rsvp_comment (Optional[str]): Optional message to include with the RSVP response (rsvp action only).
+        send_updates (Optional[str]): Notification behavior for RSVP — "all" (default), "externalOnly", or "none" (rsvp action only).
 
     Returns:
         str: Confirmation message with event details.
@@ -1285,9 +1407,23 @@ async def manage_event(
             event_id=event_id,
             calendar_id=calendar_id,
         )
+    elif action_lower == "rsvp":
+        if not event_id:
+            raise ValueError("event_id is required for rsvp action")
+        if not response:
+            raise ValueError("response is required for rsvp action")
+        return await _rsvp_event_impl(
+            service=service,
+            user_google_email=user_google_email,
+            event_id=event_id,
+            response=response,
+            calendar_id=calendar_id,
+            comment=rsvp_comment,
+            send_updates=send_updates or "all",
+        )
     else:
         raise ValueError(
-            f"Invalid action '{action_lower}'. Must be 'create', 'update', or 'delete'."
+            f"Invalid action '{action_lower}'. Must be 'create', 'update', 'delete', or 'rsvp'."
         )
 
 
@@ -1418,7 +1554,11 @@ async def _list_ooo_events_impl(
             try:
                 tz = pytz.timezone(timezone)
                 now = datetime.datetime.now(tz)
-                effective_time_min = now.astimezone(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+                effective_time_min = (
+                    now.astimezone(datetime.timezone.utc)
+                    .isoformat()
+                    .replace("+00:00", "Z")
+                )
             except pytz.exceptions.UnknownTimeZoneError:
                 logger.warning(
                     f"Could not apply timezone '{timezone}', falling back to UTC"
@@ -1723,7 +1863,9 @@ def _focus_time_time_entry(
     """
     if "T" not in time_str:
         time_str = f"{time_str}T00:00:00"
-        logger.info(f"[focus_time_time_entry] Converted date-only to dateTime: {time_str}")
+        logger.info(
+            f"[focus_time_time_entry] Converted date-only to dateTime: {time_str}"
+        )
 
     has_explicit_offset = time_str.endswith("Z") or bool(
         re.search(r"[+-]\d{2}:\d{2}$", time_str)
@@ -1740,7 +1882,9 @@ def _focus_time_time_entry(
     return entry
 
 
-def _validate_chat_status(chat_status: Optional[str], function_name: str) -> Optional[str]:
+def _validate_chat_status(
+    chat_status: Optional[str], function_name: str
+) -> Optional[str]:
     """Validate chat status for Focus Time events."""
     if chat_status is None:
         return None
@@ -1852,7 +1996,11 @@ async def _list_focus_time_events_impl(
             try:
                 tz = pytz.timezone(timezone)
                 now = datetime.datetime.now(tz)
-                effective_time_min = now.astimezone(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+                effective_time_min = (
+                    now.astimezone(datetime.timezone.utc)
+                    .isoformat()
+                    .replace("+00:00", "Z")
+                )
             except pytz.exceptions.UnknownTimeZoneError:
                 logger.warning(
                     f"Could not apply timezone '{timezone}', falling back to UTC"
@@ -1949,11 +2097,17 @@ async def _update_focus_time_event_impl(
             start_time, is_end=False, timezone=timezone
         )
     if end_time is not None:
-        patch_body["end"] = _focus_time_time_entry(end_time, is_end=True, timezone=timezone)
+        patch_body["end"] = _focus_time_time_entry(
+            end_time, is_end=True, timezone=timezone
+        )
     if recurrence is not None:
         patch_body["recurrence"] = recurrence
 
-    if auto_decline_mode is not None or decline_message is not None or chat_status is not None:
+    if (
+        auto_decline_mode is not None
+        or decline_message is not None
+        or chat_status is not None
+    ):
         existing_ft_props = existing_event.get("focusTimeProperties", {})
         updated_ft_props: Dict[str, str] = {
             "autoDeclineMode": _validate_auto_decline_mode(

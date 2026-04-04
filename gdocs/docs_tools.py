@@ -33,6 +33,7 @@ from gdocs.docs_helpers import (
     create_insert_doc_tab_request,
     create_update_doc_tab_request,
     create_delete_doc_tab_request,
+    create_update_paragraph_style_request,
     validate_suggestions_view_mode,
     create_update_paragraph_style_request,
 )
@@ -1077,12 +1078,37 @@ async def batch_update_doc(
       update_table_cell_style
                        - required: table_start_index (int)
                          optional: background_color, border_color, border_width,
+                                   padding_top, padding_bottom, padding_left,
+                                   padding_right (float, points),
+                                   content_alignment ("TOP"|"MIDDLE"|"BOTTOM"),
                                    row_index, column_index, row_span, column_span
                          Use inspect_doc_structure to find table_start_index from
                          table_details[].start_index. If row/column values are
                          omitted, the style is applied to the entire table.
       insert_table     - required: rows (int), columns (int)
                          optional: index (int), tab_id, segment_id, end_of_segment
+      insert_table_row - required: table_start_index (int), row_index (int)
+                         optional: insert_below (bool, default true), tab_id
+      delete_table_row - required: table_start_index (int), row_index (int)
+                         optional: tab_id
+      insert_table_column
+                       - required: table_start_index (int), column_index (int)
+                         optional: insert_right (bool, default true), tab_id
+      delete_table_column
+                       - required: table_start_index (int), column_index (int)
+                         optional: tab_id
+      merge_table_cells
+                       - required: table_start_index (int), row_index (int),
+                                   column_index (int), row_span (int), column_span (int)
+                         optional: tab_id
+      unmerge_table_cells
+                       - required: table_start_index (int), row_index (int),
+                                   column_index (int), row_span (int), column_span (int)
+                         optional: tab_id
+      update_table_column_properties
+                       - required: table_start_index (int), column_indices (list[int])
+                         optional: width (float, points), width_type
+                                   (FIXED_WIDTH|EVENLY_DISTRIBUTED), tab_id
       insert_page_break- optional: index (int), end_of_segment, tab_id
       insert_section_break
                        - optional: index (int), end_of_segment, section_type
@@ -2240,15 +2266,25 @@ async def get_doc_as_markdown(
         f"[get_doc_as_markdown] Doc={document_id}, comments={include_comments}, mode={comment_mode}"
     )
 
-    # Fetch document content via Docs API
-    doc = await asyncio.to_thread(
-        docs_service.documents()
-        .get(
-            documentId=document_id,
-            suggestionsViewMode=suggestions_view_mode,
+    # Fetch document content via Docs API (includeTabsContent for multi-tab docs)
+    try:
+        doc = await asyncio.wait_for(
+            asyncio.to_thread(
+                docs_service.documents()
+                .get(
+                    documentId=document_id,
+                    includeTabsContent=True,
+                    suggestionsViewMode=suggestions_view_mode,
+                )
+                .execute
+            ),
+            timeout=30,
         )
-        .execute
-    )
+    except (TimeoutError, asyncio.TimeoutError):
+        return (
+            f"Error: Timed out fetching document {document_id} from Google Docs API. "
+            "The document may be too large or there may be a network issue. Please try again."
+        )
 
     markdown = convert_doc_to_markdown(doc)
 
