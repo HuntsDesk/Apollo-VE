@@ -10,6 +10,7 @@ Supported markdown:
     # H1          -> HEADING_1
     ## H2         -> HEADING_2
     ### H3        -> HEADING_3
+    - [ ] item    -> checkbox list (BULLET_CHECKBOX) — also matches `- [x]`
     - item        -> bulleted list (BULLET_DISC_CIRCLE_SQUARE)
     1. item       -> numbered list (NUMBERED_DECIMAL_ALPHA_ROMAN)
     **bold**      -> bold text run
@@ -35,6 +36,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 
 _HEADING_RE = re.compile(r"^(#{1,3})\s+(.*)$")
+_CHECKBOX_RE = re.compile(r"^\s*[-*+]\s+\[([ xX])\]\s+(.*)$")
 _BULLET_RE = re.compile(r"^\s*[-*+]\s+(.*)$")
 _NUMBERED_RE = re.compile(r"^\s*\d+\.\s+(.*)$")
 _BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
@@ -140,6 +142,7 @@ def _parse_blocks(markdown: str) -> List[_Block]:
             blocks.append(_Block(text=""))
             continue
         heading = _HEADING_RE.match(line)
+        checkbox = _CHECKBOX_RE.match(line)
         bullet = _BULLET_RE.match(line)
         numbered = _NUMBERED_RE.match(line)
         if heading:
@@ -149,6 +152,16 @@ def _parse_blocks(markdown: str) -> List[_Block]:
                 _Block(
                     text=inner,
                     named_style_type=f"HEADING_{level}",
+                    inline_ranges=inline,
+                )
+            )
+        elif checkbox:
+            # - [ ] or - [x] / - [X] -> checkbox list item
+            inner, inline = _parse_inline(checkbox.group(2))
+            blocks.append(
+                _Block(
+                    text=inner,
+                    bullet_preset="BULLET_CHECKBOX",
                     inline_ranges=inline,
                 )
             )

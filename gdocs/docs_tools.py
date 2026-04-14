@@ -368,9 +368,10 @@ async def create_doc(
         title: Title of the new document
         content: Optional initial content to insert.
         format_as_markdown: If True, parses `content` as markdown and inserts it
-            with native Docs formatting (headings, bold, italic, bullet/numbered
-            lists). Supports `# H1`-`### H3`, `**bold**`, `*italic*`, `- bullets`,
-            `1. numbered`. Default False (insert as plain text).
+            with native Docs formatting (headings, bold, italic, bullet/numbered/
+            checkbox lists). Supports `# H1`-`### H3`, `**bold**`, `*italic*`,
+            `- bullets`, `1. numbered`, and `- [ ] checkbox` (also `- [x]`).
+            Default False (insert as plain text).
 
     Returns:
         str: Confirmation message with document ID, link, and initial document state.
@@ -2569,7 +2570,7 @@ async def update_doc_tab(
 
 @server.tool()
 @handle_http_errors("list_doc_tabs", is_read_only=True, service_type="docs")
-@require_google_service("docs", "docs_readonly")
+@require_google_service("docs", "docs_read")
 async def list_doc_tabs(
     service: Any,
     user_google_email: str,
@@ -2638,7 +2639,8 @@ async def insert_doc_markdown(
     """
     Insert markdown content into a Google Doc with native formatting applied.
 
-    Supports `# H1`-`### H3`, `**bold**`, `*italic*`, `- bullets`, `1. numbered`.
+    Supports `# H1`-`### H3`, `**bold**`, `*italic*`, `- bullets`, `1. numbered`,
+    and `- [ ] checkbox` (also `- [x]`).
     Converts markdown into Google Docs API batch requests so headings, lists,
     and text emphasis render as proper Docs styles rather than raw markdown text.
 
@@ -2857,7 +2859,7 @@ async def insert_doc_file_chip(
 
 @server.tool()
 @handle_http_errors("get_doc_smart_chips", is_read_only=True, service_type="docs")
-@require_google_service("docs", "docs_readonly")
+@require_google_service("docs", "docs_read")
 async def get_doc_smart_chips(
     service: Any,
     user_google_email: str,

@@ -91,6 +91,30 @@ def test_numbered_list():
     assert all(b["bulletPreset"] == "NUMBERED_DECIMAL_ALPHA_ROMAN" for b in bullets)
 
 
+def test_checkbox_list_unchecked():
+    requests = markdown_to_docs_requests("- [ ] one\n- [ ] two", start_index=1)
+    text = _insert_text(requests)["insertText"]["text"]
+    assert text == "one\ntwo\n"
+    bullets = _find(requests, "createParagraphBullets")
+    assert len(bullets) == 2
+    assert all(b["bulletPreset"] == "BULLET_CHECKBOX" for b in bullets)
+
+
+def test_checkbox_list_checked_x_and_X():
+    requests = markdown_to_docs_requests("- [x] done\n- [X] also", start_index=1)
+    bullets = _find(requests, "createParagraphBullets")
+    assert len(bullets) == 2
+    assert all(b["bulletPreset"] == "BULLET_CHECKBOX" for b in bullets)
+    text = _insert_text(requests)["insertText"]["text"]
+    assert text == "done\nalso\n"
+
+
+def test_plain_bullet_still_works():
+    requests = markdown_to_docs_requests("- regular item", start_index=1)
+    bullets = _find(requests, "createParagraphBullets")
+    assert bullets[0]["bulletPreset"] == "BULLET_DISC_CIRCLE_SQUARE"
+
+
 def test_mixed_document_structure():
     md = "# Title\nSome **bold** text\n- bullet one\n- bullet two\n1. step"
     requests = markdown_to_docs_requests(md, start_index=1)
