@@ -220,7 +220,7 @@ async def test_search_messages_shows_attachment_indicator(mock_resolve):
 @pytest.mark.asyncio
 @patch("gchat.chat_tools._resolve_sender", new_callable=AsyncMock)
 async def test_search_messages_combines_filters_and_uses_page_size(mock_resolve):
-    """Cross-space search should honor page_size and combine query with time_filter."""
+    """Cross-space search should honor page_size and only send supported API filters."""
     mock_resolve.return_value = "Test User"
 
     msg = _make_message(text="Deploy finished")
@@ -247,10 +247,45 @@ async def test_search_messages_combines_filters_and_uses_page_size(mock_resolve)
     assert 'text "deploy" and createTime > "2026-03-18T00:00:00-03:00"' in result
     list_kwargs = chat_service.spaces().messages().list.call_args.kwargs
     assert list_kwargs["pageSize"] == 7
-    assert (
-        list_kwargs["filter"]
-        == 'text:"deploy" AND createTime > "2026-03-18T00:00:00-03:00"'
+    assert list_kwargs["filter"] == 'createTime > "2026-03-18T00:00:00-03:00"'
+
+
+@pytest.mark.asyncio
+@patch("gchat.chat_tools._resolve_sender", new_callable=AsyncMock)
+async def test_search_messages_query_only_filters_client_side_without_api_filter(
+    mock_resolve,
+):
+    """Query-only search should avoid unsupported Chat API text filters."""
+    mock_resolve.return_value = "Test User"
+
+    matching = _make_message(text="Deploy finished")
+    matching["_space_name"] = "General"
+    non_matching = _make_message(text="Lunch plans")
+    non_matching["_space_name"] = "General"
+
+    chat_service = Mock()
+    chat_service.spaces().list().execute.return_value = {
+        "spaces": [{"name": "spaces/S", "displayName": "General"}]
+    }
+    chat_service.spaces().messages().list().execute.return_value = {
+        "messages": [matching, non_matching]
+    }
+    people_service = Mock()
+
+    from gchat.chat_tools import search_messages
+
+    result = await _unwrap(search_messages)(
+        chat_service=chat_service,
+        people_service=people_service,
+        user_google_email="test@example.com",
+        query="deploy",
     )
+
+    assert "Deploy finished" in result
+    assert "Lunch plans" not in result
+    list_kwargs = chat_service.spaces().messages().list.call_args.kwargs
+    assert list_kwargs["pageSize"] == 25
+    assert "filter" not in list_kwargs
 
 
 @pytest.mark.asyncio

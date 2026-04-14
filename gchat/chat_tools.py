@@ -16,7 +16,7 @@ from googleapiclient.errors import HttpError
 # Auth & server utilities
 from auth.service_decorator import require_google_service, require_multiple_services
 from core.server import server
-from core.utils import handle_http_errors
+from core.utils import TransientNetworkError, handle_http_errors
 
 logger = logging.getLogger(__name__)
 
@@ -460,6 +460,11 @@ async def search_messages(
         for batch, had_transient_failure in results:
             messages.extend(batch)
             transient_failures += int(had_transient_failure)
+        if spaces_to_search and transient_failures == len(spaces_to_search):
+            raise TransientNetworkError(
+                "A transient SSL error occurred in 'search_messages' while searching Chat spaces. "
+                "Please try again shortly."
+            )
         context = "all accessible spaces"
 
     # Client-side text filtering (text: operator is not supported by the API)
