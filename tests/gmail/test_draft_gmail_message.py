@@ -137,6 +137,39 @@ async def test_draft_gmail_message_raises_when_no_attachments_are_added(
 
 
 @pytest.mark.asyncio
+async def test_draft_gmail_message_surfaces_guidance_for_paths_outside_allowed_dirs(
+    tmp_path, monkeypatch
+):
+    allowed_dir = tmp_path / "allowed"
+    allowed_dir.mkdir()
+    blocked_dir = tmp_path / "blocked"
+    blocked_dir.mkdir()
+    blocked_path = blocked_dir / "sample.txt"
+    blocked_path.write_text("hello attachment", encoding="utf-8")
+    monkeypatch.setenv("ALLOWED_FILE_DIRS", str(allowed_dir))
+
+    mock_service = Mock()
+    mock_service.users().drafts().create().execute.return_value = {"id": "draft123"}
+
+    with pytest.raises(UserInputError) as exc_info:
+        await _unwrap(draft_gmail_message)(
+            service=mock_service,
+            user_google_email="user@example.com",
+            to="recipient@example.com",
+            subject="Attachment test",
+            body="Please see attached.",
+            attachments=[{"path": str(blocked_path)}],
+            include_signature=False,
+        )
+
+    message = str(exc_info.value)
+    assert "No valid attachments were added" in message
+    assert "permitted directories" in message
+    assert "external mounts such as /run/media may be blocked" in message
+    assert str(blocked_path) in message
+
+
+@pytest.mark.asyncio
 async def test_draft_gmail_message_appends_gmail_signature_html():
     mock_service = Mock()
     mock_service.users().drafts().create().execute.return_value = {"id": "draft_sig"}

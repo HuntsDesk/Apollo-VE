@@ -538,6 +538,25 @@ def _format_attachment_result(attached_count: int, requested_count: int) -> str:
     return f" with {attached_count}/{requested_count} attachment(s) attached"
 
 
+def _format_attachment_error(
+    file_path: Optional[str], filename: Optional[str], error: Exception
+) -> str:
+    """Convert attachment processing failures into user-facing guidance."""
+    label = filename or file_path or "attachment"
+    detail = str(error)
+
+    if file_path and isinstance(error, ValueError):
+        if "outside permitted directories" in detail:
+            detail = (
+                "local file access is limited to the server's permitted directories, "
+                f"so '{file_path}' could not be read. Files on external mounts such as "
+                "/run/media may be blocked; move the file into an allowed directory or "
+                "set ALLOWED_FILE_DIRS."
+            )
+
+    return f"{label}: {detail}"
+
+
 def _extract_attachments(payload: dict) -> List[Dict[str, Any]]:
     """
     Extract attachment metadata from a Gmail message payload.
@@ -731,7 +750,7 @@ def _prepare_gmail_message(
     from_email: Optional[str] = None,
     from_name: Optional[str] = None,
     attachments: Optional[List[Dict[str, str]]] = None,
-) -> tuple[str, Optional[str], int]:
+) -> tuple[str, Optional[str], int, List[str]]:
     """
     Prepare a Gmail message with threading and attachment support.
 
@@ -750,7 +769,8 @@ def _prepare_gmail_message(
         attachments: Optional list of attachments. Each can have 'path' (file path) OR 'content' (base64) + 'filename'
 
     Returns:
-        Tuple of (raw_message, thread_id, attached_count) where raw_message is base64 encoded
+        Tuple of (raw_message, thread_id, attached_count, attachment_errors)
+        where raw_message is base64 encoded.
     """
     # Handle reply subject formatting
     reply_subject = subject
@@ -763,6 +783,7 @@ def _prepare_gmail_message(
         raise ValueError("body_format must be either 'plain' or 'html'.")
 
     attached_count = 0
+    attachment_errors: List[str] = []
     message = EmailMessage(policy=SMTP)
 
     message["Subject"] = reply_subject
@@ -859,15 +880,17 @@ def _prepare_gmail_message(
             logger.info(f"Attached file: {safe_filename} ({len(file_data)} bytes)")
         except (binascii.Error, ValueError) as e:
             logger.error(f"Failed to decode attachment {filename or file_path}: {e}")
+            attachment_errors.append(_format_attachment_error(file_path, filename, e))
             continue
         except Exception as e:
             logger.error(f"Failed to attach {filename or file_path}: {e}")
+            attachment_errors.append(_format_attachment_error(file_path, filename, e))
             continue
 
     # Encode message
     raw_message = base64.urlsafe_b64encode(message.as_bytes(policy=SMTP)).decode()
 
-    return raw_message, thread_id, attached_count
+    return raw_message, thread_id, attached_count, attachment_errors
 
 
 def _generate_gmail_web_url(item_id: str, account_index: int = 0) -> str:
@@ -1644,25 +1667,31 @@ async def send_gmail_message(
     # Prepare the email message
     # Use from_email (Send As alias) if provided, otherwise default to authenticated user
     sender_email = from_email or user_google_email
-    raw_message, thread_id_final, attached_count = _prepare_gmail_message(
-        subject=subject,
-        body=body,
-        to=to,
-        cc=cc,
-        bcc=bcc,
-        thread_id=thread_id,
-        in_reply_to=in_reply_to,
-        references=references,
-        body_format=body_format,
-        from_email=sender_email,
-        from_name=from_name,
-        attachments=attachments if attachments else None,
+    raw_message, thread_id_final, attached_count, attachment_errors = (
+        _prepare_gmail_message(
+            subject=subject,
+            body=body,
+            to=to,
+            cc=cc,
+            bcc=bcc,
+            thread_id=thread_id,
+            in_reply_to=in_reply_to,
+            references=references,
+            body_format=body_format,
+            from_email=sender_email,
+            from_name=from_name,
+            attachments=attachments if attachments else None,
+        )
     )
 
     requested_attachment_count = len(attachments or [])
     if requested_attachment_count > 0 and attached_count == 0:
+        details = (
+            f" Details: {'; '.join(attachment_errors)}" if attachment_errors else ""
+        )
         raise UserInputError(
             "No valid attachments were added. Verify each attachment path/content and retry."
+            f"{details}"
         )
 
     send_body = {"raw": raw_message}
@@ -1901,25 +1930,31 @@ async def draft_gmail_message(
     else:
         draft_body = _append_signature_to_body(draft_body, body_format, signature_html)
 
-    raw_message, thread_id_final, attached_count = _prepare_gmail_message(
-        subject=subject,
-        body=draft_body,
-        body_format=body_format,
-        to=to,
-        cc=cc,
-        bcc=bcc,
-        thread_id=thread_id,
-        in_reply_to=in_reply_to,
-        references=references,
-        from_email=sender_email,
-        from_name=from_name,
-        attachments=attachments,
+    raw_message, thread_id_final, attached_count, attachment_errors = (
+        _prepare_gmail_message(
+            subject=subject,
+            body=draft_body,
+            body_format=body_format,
+            to=to,
+            cc=cc,
+            bcc=bcc,
+            thread_id=thread_id,
+            in_reply_to=in_reply_to,
+            references=references,
+            from_email=sender_email,
+            from_name=from_name,
+            attachments=attachments,
+        )
     )
 
     requested_attachment_count = len(attachments or [])
     if requested_attachment_count > 0 and attached_count == 0:
+        details = (
+            f" Details: {'; '.join(attachment_errors)}" if attachment_errors else ""
+        )
         raise UserInputError(
             "No valid attachments were added. Verify each attachment path/content and retry."
+            f"{details}"
         )
 
     # Create a draft instead of sending
