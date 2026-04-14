@@ -166,6 +166,6 @@ update_paragraph_style(start_index=X, end_index=Y, list_type="ORDERED")
 ```
 
 **Index rules:**
-- start_index = first character of the paragraph (1-based in Google Docs)
+- start_index = first character of the paragraph from `inspect_doc_structure` (Docs API body content typically starts at 1; `0` is also accepted as a start-of-body alias)
 - end_index = character AFTER the `\n` that ends the paragraph
 - For multi-paragraph ranges (lists), span from first char of first item to after `\n` of last item
