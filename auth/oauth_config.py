@@ -63,6 +63,25 @@ class OAuthConfig:
                 "WORKSPACE_MCP_STATELESS_MODE requires MCP_ENABLE_OAUTH21=true"
             )
 
+        # Service account (domain-wide delegation) configuration
+        self.service_account_key_file = os.getenv("GOOGLE_SERVICE_ACCOUNT_KEY_FILE")
+        self.service_account_key_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_KEY_JSON")
+        if self.service_account_key_file and self.service_account_key_json:
+            raise ValueError(
+                "Only one service account key source may be provided. "
+                "Set either GOOGLE_SERVICE_ACCOUNT_KEY_FILE or "
+                "GOOGLE_SERVICE_ACCOUNT_KEY_JSON, not both."
+            )
+        self.service_account_enabled = bool(
+            self.service_account_key_file or self.service_account_key_json
+        )
+        if self.service_account_enabled and self.oauth21_enabled:
+            raise ValueError(
+                "Service account mode is incompatible with OAuth 2.1 mode. "
+                "Set GOOGLE_SERVICE_ACCOUNT_KEY_FILE or GOOGLE_SERVICE_ACCOUNT_KEY_JSON, "
+                "but not MCP_ENABLE_OAUTH21=true."
+            )
+
         # Transport mode (will be set at runtime)
         self._transport_mode = "stdio"  # Default
 
@@ -221,6 +240,7 @@ class OAuthConfig:
             "oauth21_enabled": self.oauth21_enabled,
             "external_oauth21_provider": self.external_oauth21_provider,
             "pkce_required": self.pkce_required,
+            "service_account_enabled": self.service_account_enabled,
             "transport_mode": self._transport_mode,
             "total_redirect_uris": len(self.get_redirect_uris()),
             "total_allowed_origins": len(self.get_allowed_origins()),
@@ -264,6 +284,15 @@ class OAuthConfig:
             True if external OAuth 2.1 provider is enabled
         """
         return self.external_oauth21_provider
+
+    def is_service_account_enabled(self) -> bool:
+        """
+        Check if service account (domain-wide delegation) mode is enabled.
+
+        Returns:
+            True if service account mode is enabled
+        """
+        return self.service_account_enabled
 
     def detect_oauth_version(self, request_params: Dict[str, Any]) -> str:
         """
@@ -442,3 +471,8 @@ def is_stateless_mode() -> bool:
 def is_external_oauth21_provider() -> bool:
     """Check if external OAuth 2.1 provider mode is enabled."""
     return get_oauth_config().is_external_oauth21_provider()
+
+
+def is_service_account_enabled() -> bool:
+    """Check if service account (domain-wide delegation) mode is enabled."""
+    return get_oauth_config().is_service_account_enabled()

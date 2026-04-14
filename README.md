@@ -121,9 +121,57 @@ Workspace MCP is the single most complete MCP server that integrates all major G
 
 ---
 
+## <span style="color:#adbcbc">Security & Compliance</span>
+
+<table>
+<tr>
+<td valign="top" width="50%">
+
+**For Security Teams**
+
+This server sends no data anywhere except Google's APIs, on behalf of the authenticated user, using your own OAuth client credentials. There is no telemetry, no usage reporting, no analytics, no license server, and no SaaS dependency. The entire data path is: your infrastructure → Google APIs.
+
+- **Fully open source** — every line is auditable in this repo
+- **Your OAuth client, your GCP project** — credentials never leave your environment
+- **You control the scopes** — read-only, granular per-service permissions, or full access
+- **You control the network** — deploy behind your reverse proxy, in your VPC, on your own terms
+- **No third-party services** — no intermediary servers, no token relays, no hosted backends
+- **Stateless mode** — zero disk writes for locked-down container environments
+- **Sensitive path blocking** — `.env`, `.ssh/`, `.aws/`, and credential files are blocked regardless of configuration
+
+Full dependency tree in `pyproject.toml`, pinned in `uv.lock`.
+
+</td>
+<td valign="top" width="50%">
+
+**For Legal & Procurement**
+
+This project is [MIT licensed](LICENSE) — not "open core," not "source available," not "free with a CLA." There is no dual licensing, no commercial tier gating features, and no contributor license agreement.
+
+- **Use commercially without restriction** — build products, sell services, deploy internally
+- **Fork, embed, redistribute** — MIT requires only attribution
+- **No CLA** — contributions remain under MIT
+- **No telemetry to disclose** — nothing to flag in a privacy review
+- **No network effects** — the server never contacts any endpoint you didn't configure
+- **Standard dependency licenses** — MIT, Apache 2.0, and BSD throughout the dependency chain; no copyleft, no AGPL
+
+The license is 21 lines and says what it means.
+
+</td>
+</tr>
+</table>
+
+---
+
 ## Quick Start
 
 > Set credentials → pick a launch command → connect your client
+
+<div align="center">
+
+> 💡 **New to Workspace MCP?** Check out the **[Interactive Quick Start Guide →](https://workspacemcp.com/quick-start)** with step-by-step setup, screenshots, and troubleshooting tips!
+
+</div>
 
 ```bash
 # 1. Credentials
@@ -153,7 +201,7 @@ uv run main.py --tools gmail drive calendar
 | `OAUTHLIB_INSECURE_TRANSPORT` | **required**&ast; | Set to `1` for development — allows `http://` redirect |
 | `USER_GOOGLE_EMAIL` | | Default email for single-user auth |
 | `GOOGLE_CLIENT_SECRET_PATH` | | Custom path to `client_secret.json` |
-| `GOOGLE_MCP_CREDENTIALS_DIR` | | Credential storage directory — default `~/.google_workspace_mcp/credentials` |
+| `GOOGLE_MCP_CREDENTIALS_DIR` | | Credential directory — default `~/.google_workspace_mcp/credentials` |
 | **🖥️ Server** | | |
 | `WORKSPACE_MCP_BASE_URI` | | Base server URI (no port) — default `http://localhost` |
 | `WORKSPACE_MCP_PORT` | | Listening port — default `8000` |
@@ -171,6 +219,9 @@ uv run main.py --tools gmail drive calendar
 | `OAUTH_ALLOWED_ORIGINS` | | Comma-separated additional CORS origins |
 | `WORKSPACE_MCP_OAUTH_PROXY_STORAGE_BACKEND` | | `memory`, `disk`, or `valkey` — see [storage backends](#oauth-proxy-storage-backends) |
 | `FASTMCP_SERVER_AUTH_GOOGLE_JWT_SIGNING_KEY` | | Custom encryption key for OAuth proxy storage |
+| **🔧 Service Account** | | |
+| `GOOGLE_SERVICE_ACCOUNT_KEY_FILE` | | Path to service account JSON key file (domain-wide delegation) |
+| `GOOGLE_SERVICE_ACCOUNT_KEY_JSON` | | Inline service account JSON key (alternative to file) |
 | **🔍 Custom Search** | | |
 | `GOOGLE_PSE_API_KEY` | | API key for Programmable Search Engine |
 | `GOOGLE_PSE_ENGINE_ID` | | Search Engine ID for PSE |
@@ -610,6 +661,12 @@ cp .env.oauth21 .env
 
 > **Note**: All tools support automatic authentication via `@require_google_service()` decorators with 30-minute service caching.
 
+<div align="center">
+
+> 📖 **Looking for detailed parameters?** Visit the **[Complete Documentation →](https://workspacemcp.com/docs)** for comprehensive tool reference, examples, and API guides!
+
+</div>
+
 #### 📅 Google Calendar <sub>[`calendar_tools.py`](gcalendar/calendar_tools.py)</sub>
 
 | <sub>Tool</sub> | <sub>Tier</sub> | <sub>Description</sub> |
@@ -617,6 +674,8 @@ cp .env.oauth21 .env
 | <sub>`list_calendars`</sub> | <sub>Core</sub> | <sub>List accessible calendars</sub> |
 | <sub>`get_events`</sub> | <sub>Core</sub> | <sub>Retrieve events with time range filtering</sub> |
 | <sub>`manage_event`</sub> | <sub>Core</sub> | <sub>Create, update, or delete calendar events</sub> |
+| <sub>`create_calendar`</sub> | <sub>Extended</sub> | <sub>Create a new secondary Google Calendar</sub> |
+| <sub>`query_freebusy`</sub> | <sub>Extended</sub> | <sub>Query free/busy information for calendars</sub> |
 | <sub>`manage_out_of_office`</sub> | <sub>Extended</sub> | <sub>Create, list, update, or delete Out of Office events</sub> |
 | <sub>`manage_focus_time`</sub> | <sub>Extended</sub> | <sub>Create, list, update, or delete Focus Time events</sub> |
 
@@ -941,13 +1000,14 @@ The server includes OAuth 2.1 support for bearer token authentication, enabling 
 - Production environments requiring secure session management
 - Browser-based clients requiring CORS support
 
-**⚠️ Important: OAuth 2.1 and Single-User Mode are mutually exclusive**
+**⚠️ Important: Mutually exclusive authentication modes**
 
-OAuth 2.1 mode (`MCP_ENABLE_OAUTH21=true`) cannot be used together with the `--single-user` flag:
+OAuth 2.1 mode (`MCP_ENABLE_OAUTH21=true`) cannot be used together with `--single-user` or service account mode:
 - **Single-user mode**: For legacy clients that pass user emails in tool calls
 - **OAuth 2.1 mode**: For modern multi-user scenarios with bearer token authentication
+- **Service account mode**: For headless/server-to-server use via domain-wide delegation
 
-Choose one authentication method - using both will result in a startup error.
+Choose one authentication method - combining incompatible modes will result in a startup error.
 
 **Enabling OAuth 2.1:**
 To enable OAuth 2.1, set the `MCP_ENABLE_OAUTH21` environment variable to `true`.
@@ -1096,6 +1156,49 @@ uv run main.py --transport streamable-http
 - Multi-tenant SaaS applications with centralized auth
 - Mobile or web apps with their own OAuth implementation
 
+
+### Service Account Mode (Domain-Wide Delegation)
+
+> **WARNING: This mode uses Google Workspace domain-wide delegation, which grants the service account the ability to impersonate any user in your domain for the configured scopes. This is powerful and dangerous — do not use this unless you fully understand the security implications. A misconfigured service account with broad scopes can read, modify, and delete data across every user in your organization. Only use this in tightly controlled environments where you know exactly what you're doing.**
+
+Service account mode allows the server to authenticate using a Google Cloud service account with domain-wide delegation instead of interactive OAuth flows. The service account impersonates a single configured domain user for all API calls.
+
+**When to use service account mode:**
+- Headless or unattended environments where no browser is available for OAuth consent
+- Server-to-server integrations that need to act on behalf of a specific domain user
+- CI/CD pipelines or automation scripts
+- Environments where you cannot or do not want to manage per-user OAuth tokens
+
+**Enabling Service Account Mode:**
+
+```bash
+# Option 1: Key file on disk
+export GOOGLE_SERVICE_ACCOUNT_KEY_FILE="/path/to/service-account-key.json"
+export USER_GOOGLE_EMAIL="user@yourdomain.com"
+uv run main.py
+
+# Option 2: Inline JSON key (e.g., from a secret manager)
+export GOOGLE_SERVICE_ACCOUNT_KEY_JSON='{"type":"service_account","project_id":"...","private_key":"...","client_email":"..."}'
+export USER_GOOGLE_EMAIL="user@yourdomain.com"
+uv run main.py
+```
+
+**Prerequisites:**
+1. A Google Cloud service account with a JSON key
+2. Domain-wide delegation enabled for the service account in your Google Workspace Admin Console (Security → API controls → Domain-wide delegation)
+3. The required OAuth scopes authorized for the service account's client ID in the Admin Console
+4. `USER_GOOGLE_EMAIL` set to the domain user the service account will impersonate
+
+**Incompatibilities:**
+- Cannot be combined with `--single-user` mode
+- Cannot be combined with `MCP_ENABLE_OAUTH21=true`
+- Only one key source may be provided — set either `GOOGLE_SERVICE_ACCOUNT_KEY_FILE` or `GOOGLE_SERVICE_ACCOUNT_KEY_JSON`, not both
+
+**Key Behaviors:**
+- The OAuth callback server is not started (no interactive auth needed)
+- Credentials directory permission checks are skipped
+- **All operations impersonate the configured `USER_GOOGLE_EMAIL`** — any email addresses supplied in tool calls (e.g., `user_email` parameters) are ignored. This differs from OAuth modes where each user authenticates separately.
+- The service account key is validated at startup (checks for required fields and correct type)
 
 ### VS Code MCP Client Support
 
