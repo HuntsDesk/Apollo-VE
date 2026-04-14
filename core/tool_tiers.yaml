@@ -38,6 +38,9 @@ drive:
   complete:
     - get_drive_file_permissions
     - check_drive_file_public_access
+    - copy_drive_folder
+    - get_drive_revisions
+    - restore_drive_revision
 
 calendar:
   core:
@@ -66,6 +69,8 @@ docs:
     - get_doc_as_markdown
     - list_document_comments
     - manage_document_comment
+    - insert_doc_markdown
+    - insert_doc_link
   complete:
     - insert_doc_image
     - update_doc_headers_footers
@@ -73,6 +78,9 @@ docs:
     - inspect_doc_structure
     - create_table_with_data
     - debug_table_structure
+    - insert_doc_person_chip
+    - insert_doc_file_chip
+    - get_doc_smart_chips
 
 sheets:
   core:
@@ -91,6 +99,10 @@ sheets:
     - list_spreadsheet_comments
     - manage_spreadsheet_comment
     - manage_conditional_formatting
+    - add_sheet_data_validation
+    - add_sheet_named_range
+    - protect_sheet_range
+    - manage_sheet_tabs
 
 chat:
   core:
@@ -122,6 +134,19 @@ slides:
     - batch_update_presentation
     - get_page
     - get_page_thumbnail
+    - format_slides_text
+    - format_slides_paragraph
+    - style_slides_shape
+    - set_slides_background
+    - create_slides_text_box
+    - create_slides_shape
+    - get_slides_speaker_notes
+    - update_slides_speaker_notes
+    - insert_slides_image
+    - delete_slides_element
+    - replace_slides_text
+    - duplicate_slide
+    - reorder_slides
   complete:
     - list_presentation_comments
     - manage_presentation_comment

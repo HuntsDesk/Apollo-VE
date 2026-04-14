@@ -2381,3 +2381,263 @@ async def set_drive_file_permissions(
     output_parts.extend(["", f"View link: {file_metadata.get('webViewLink', 'N/A')}"])
 
     return "\n".join(output_parts)
+
+
+async def _list_folder_children(service, folder_id: str) -> List[Dict[str, Any]]:
+    """
+    List all non-trashed children of a Drive folder, paginating as needed.
+    Returns a list of file resources with id, name, mimeType.
+    """
+    children: List[Dict[str, Any]] = []
+    page_token: Optional[str] = None
+    while True:
+        resp = await asyncio.to_thread(
+            service.files()
+            .list(
+                q=f"'{folder_id}' in parents and trashed = false",
+                fields="nextPageToken, files(id, name, mimeType)",
+                pageSize=200,
+                pageToken=page_token,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            )
+            .execute
+        )
+        children.extend(resp.get("files", []))
+        page_token = resp.get("nextPageToken")
+        if not page_token:
+            break
+    return children
+
+
+async def _copy_folder_tree(
+    service,
+    source_folder_id: str,
+    destination_parent_id: str,
+    new_folder_name: str,
+    stats: Dict[str, int],
+    errors: List[str],
+) -> str:
+    """
+    Recursively copy a folder tree. Returns the new folder ID.
+    Updates stats['folders'] and stats['files'] counters.
+    Errors (per-file) are collected into `errors` without aborting the whole op.
+    """
+    create_body = {
+        "name": new_folder_name,
+        "mimeType": FOLDER_MIME_TYPE,
+        "parents": [destination_parent_id],
+    }
+    new_folder = await asyncio.to_thread(
+        service.files()
+        .create(body=create_body, fields="id, name", supportsAllDrives=True)
+        .execute
+    )
+    new_folder_id = new_folder["id"]
+    stats["folders"] += 1
+
+    children = await _list_folder_children(service, source_folder_id)
+    for child in children:
+        child_name = child.get("name", "unknown")
+        child_id = child["id"]
+        try:
+            if child.get("mimeType") == FOLDER_MIME_TYPE:
+                await _copy_folder_tree(
+                    service, child_id, new_folder_id, child_name, stats, errors
+                )
+            else:
+                await asyncio.to_thread(
+                    service.files()
+                    .copy(
+                        fileId=child_id,
+                        body={"name": child_name, "parents": [new_folder_id]},
+                        supportsAllDrives=True,
+                        fields="id, name",
+                    )
+                    .execute
+                )
+                stats["files"] += 1
+        except HttpError as exc:
+            errors.append(f"{child_name} ({child_id}): {exc}")
+    return new_folder_id
+
+
+@server.tool()
+@handle_http_errors("copy_drive_folder", service_type="drive")
+@require_google_service("drive", "drive")
+async def copy_drive_folder(
+    service,
+    user_google_email: str,
+    source_folder_id: str,
+    destination_parent_id: str = "root",
+    new_folder_name: Optional[str] = None,
+) -> str:
+    """
+    Recursively copy a Drive folder (and all its contents) to a new location.
+
+    Walks the source folder tree, creating the same structure under the destination
+    and copying every file. Sequential to avoid rate-limit errors.
+
+    Args:
+        source_folder_id: ID of the folder to copy.
+        destination_parent_id: Parent folder ID where the new copy goes. "root" by default.
+        new_folder_name: Optional name for the top-level copied folder. Defaults to
+            "Copy of [original name]".
+
+    Returns:
+        Summary with new folder ID, counts of folders/files copied, and any errors.
+    """
+    logger.info(
+        f"[copy_drive_folder] src='{source_folder_id}' dest='{destination_parent_id}' name='{new_folder_name}'"
+    )
+
+    # Resolve source folder
+    source_meta = await asyncio.to_thread(
+        service.files()
+        .get(fileId=source_folder_id, fields="id, name, mimeType", supportsAllDrives=True)
+        .execute
+    )
+    if source_meta.get("mimeType") != FOLDER_MIME_TYPE:
+        return (
+            f"Error: source_folder_id '{source_folder_id}' is not a folder "
+            f"(got mimeType '{source_meta.get('mimeType')}'). Use copy_drive_file instead."
+        )
+    source_name = source_meta.get("name", "Unknown")
+    top_level_name = new_folder_name or f"Copy of {source_name}"
+
+    resolved_dest = await resolve_folder_id(service, destination_parent_id)
+
+    stats = {"folders": 0, "files": 0}
+    errors: List[str] = []
+    new_root_id = await _copy_folder_tree(
+        service, source_folder_id, resolved_dest, top_level_name, stats, errors
+    )
+
+    link = f"https://drive.google.com/drive/folders/{new_root_id}"
+    lines = [
+        f"Recursively copied folder '{source_name}' -> '{top_level_name}' for {user_google_email}.",
+        f"  Source: {source_folder_id}",
+        f"  New folder ID: {new_root_id}",
+        f"  Folders created: {stats['folders']}",
+        f"  Files copied: {stats['files']}",
+        f"  Errors: {len(errors)}",
+        f"  Link: {link}",
+    ]
+    if errors:
+        lines.append("")
+        lines.append("Errors:")
+        for err in errors[:20]:
+            lines.append(f"  - {err}")
+        if len(errors) > 20:
+            lines.append(f"  ...and {len(errors) - 20} more.")
+    return "\n".join(lines)
+
+
+@server.tool()
+@handle_http_errors("get_drive_revisions", is_read_only=True, service_type="drive")
+@require_google_service("drive", "drive_read")
+async def get_drive_revisions(
+    service,
+    user_google_email: str,
+    file_id: str,
+    page_size: int = 25,
+) -> str:
+    """
+    List revision history for a Drive file.
+
+    Returns each revision's ID, modified time, last-modifying user, and size
+    (when available). Useful before calling restore_drive_revision.
+
+    Args:
+        file_id: Drive file ID.
+        page_size: Maximum revisions to return (1-1000). Default 25.
+    """
+    logger.info(f"[get_drive_revisions] file='{file_id}' page_size={page_size}")
+
+    result = await asyncio.to_thread(
+        service.revisions()
+        .list(
+            fileId=file_id,
+            pageSize=max(1, min(page_size, 1000)),
+            fields="revisions(id, modifiedTime, lastModifyingUser(displayName, emailAddress), size, mimeType, keepForever)",
+        )
+        .execute
+    )
+    revisions = result.get("revisions", [])
+    if not revisions:
+        return f"No revisions found for file {file_id} (or file does not support revisions)."
+
+    lines = [f"Revisions for file {file_id} ({len(revisions)}):"]
+    for rev in revisions:
+        user = rev.get("lastModifyingUser") or {}
+        who = user.get("displayName") or user.get("emailAddress") or "unknown"
+        size = rev.get("size", "n/a")
+        keep = " [keepForever]" if rev.get("keepForever") else ""
+        lines.append(
+            f"  - {rev.get('id')} | {rev.get('modifiedTime')} | {who} | size: {size}{keep}"
+        )
+    return "\n".join(lines)
+
+
+@server.tool()
+@handle_http_errors("restore_drive_revision", service_type="drive")
+@require_google_service("drive", "drive")
+async def restore_drive_revision(
+    service,
+    user_google_email: str,
+    file_id: str,
+    revision_id: str,
+) -> str:
+    """
+    Restore a Drive file to a previous revision.
+
+    Downloads the revision's raw content and re-uploads it as the current version.
+    Works for binary file types (PDFs, DOCX, images, etc.). Google-native files
+    (Docs, Sheets, Slides) do not expose raw revision content via the API —
+    for those, use the Google Docs "Version history" UI instead.
+
+    Args:
+        file_id: Drive file ID.
+        revision_id: ID of the revision to restore (from get_drive_revisions).
+    """
+    logger.info(f"[restore_drive_revision] file='{file_id}' rev='{revision_id}'")
+
+    # Fetch current file metadata for mime type
+    file_meta = await asyncio.to_thread(
+        service.files()
+        .get(fileId=file_id, fields="id, name, mimeType", supportsAllDrives=True)
+        .execute
+    )
+    mime_type = file_meta.get("mimeType", "application/octet-stream")
+    name = file_meta.get("name", "Unknown")
+    if mime_type.startswith("application/vnd.google-apps"):
+        return (
+            f"Cannot restore revision for Google-native file '{name}' (mime: {mime_type}). "
+            f"Use the Google Docs/Sheets/Slides Version History UI for native files."
+        )
+
+    # Download the revision content
+    request = service.revisions().get_media(fileId=file_id, revisionId=revision_id)
+    buffer = io.BytesIO()
+    downloader = MediaIoBaseDownload(buffer, request, chunksize=DOWNLOAD_CHUNK_SIZE_BYTES)
+    done = False
+    while not done:
+        _, done = await asyncio.to_thread(downloader.next_chunk)
+    buffer.seek(0)
+
+    # Upload as the new current version
+    media = MediaIoBaseUpload(buffer, mimetype=mime_type, resumable=False)
+    updated = await asyncio.to_thread(
+        service.files()
+        .update(
+            fileId=file_id,
+            media_body=media,
+            fields="id, name, modifiedTime, version",
+            supportsAllDrives=True,
+        )
+        .execute
+    )
+    return (
+        f"Restored file '{name}' ({file_id}) to revision '{revision_id}'. "
+        f"New version: {updated.get('version', 'n/a')}, modified: {updated.get('modifiedTime', 'n/a')}."
+    )

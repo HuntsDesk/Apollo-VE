@@ -2064,6 +2064,285 @@ async def resize_sheet_dimensions(
     )
 
 
+@server.tool()
+@handle_http_errors("add_sheet_data_validation", service_type="sheets")
+@require_google_service("sheets", "sheets_write")
+async def add_sheet_data_validation(
+    service,
+    user_google_email: str,
+    spreadsheet_id: str,
+    range_name: str,
+    validation_type: str,
+    values: Optional[List[str]] = None,
+    custom_formula: Optional[str] = None,
+    strict: bool = True,
+    show_dropdown: bool = True,
+    input_message: Optional[str] = None,
+) -> str:
+    """
+    Add data validation rules to a cell range (dropdowns, number bounds, custom formulas).
+
+    Args:
+        spreadsheet_id: ID of the spreadsheet.
+        range_name: A1 range (e.g., "Sheet1!A1:A10" or "A1:A10").
+        validation_type: One of ONE_OF_LIST, NUMBER_BETWEEN, NUMBER_GREATER,
+            NUMBER_LESS, NUMBER_EQ, TEXT_CONTAINS, TEXT_EQ, DATE_AFTER, DATE_BEFORE,
+            DATE_ON_OR_AFTER, DATE_ON_OR_BEFORE, CUSTOM_FORMULA, BOOLEAN.
+        values: List of allowed values (for ONE_OF_LIST) or bounds (for NUMBER_BETWEEN
+            pass [min, max]). For single-value conditions, pass [value].
+        custom_formula: For CUSTOM_FORMULA type, the formula (e.g., "=A1>0").
+        strict: If True, rejects invalid input. If False, shows a warning.
+        show_dropdown: For ONE_OF_LIST, whether to show the dropdown UI.
+        input_message: Optional help text shown on hover.
+    """
+    logger.info(
+        f"[add_sheet_data_validation] spreadsheet='{spreadsheet_id}' range='{range_name}' type='{validation_type}'"
+    )
+
+    meta = await asyncio.to_thread(
+        service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute
+    )
+    grid_range = _parse_a1_range(range_name, meta.get("sheets", []))
+
+    # Build the condition
+    vt = validation_type.upper()
+    if vt == "ONE_OF_LIST":
+        if not values:
+            raise UserInputError("ONE_OF_LIST validation requires 'values'.")
+        condition = {
+            "type": "ONE_OF_LIST",
+            "values": [{"userEnteredValue": str(v)} for v in values],
+        }
+    elif vt == "CUSTOM_FORMULA":
+        if not custom_formula:
+            raise UserInputError("CUSTOM_FORMULA validation requires 'custom_formula'.")
+        condition = {
+            "type": "CUSTOM_FORMULA",
+            "values": [{"userEnteredValue": custom_formula}],
+        }
+    elif vt == "NUMBER_BETWEEN":
+        if not values or len(values) != 2:
+            raise UserInputError(
+                "NUMBER_BETWEEN validation requires values=[min, max]."
+            )
+        condition = {
+            "type": "NUMBER_BETWEEN",
+            "values": [{"userEnteredValue": str(values[0])}, {"userEnteredValue": str(values[1])}],
+        }
+    elif vt == "BOOLEAN":
+        condition = {"type": "BOOLEAN"}
+    else:
+        # Single-value conditions (NUMBER_GREATER, TEXT_CONTAINS, DATE_AFTER, etc.)
+        if not values or len(values) < 1:
+            raise UserInputError(
+                f"{vt} validation requires at least one value in 'values'."
+            )
+        condition = {
+            "type": vt,
+            "values": [{"userEnteredValue": str(values[0])}],
+        }
+
+    rule: dict = {"condition": condition, "strict": strict}
+    if vt == "ONE_OF_LIST":
+        rule["showCustomUi"] = show_dropdown
+    if input_message:
+        rule["inputMessage"] = input_message
+
+    body = {
+        "requests": [
+            {"setDataValidation": {"range": grid_range, "rule": rule}}
+        ]
+    }
+    await asyncio.to_thread(
+        service.spreadsheets()
+        .batchUpdate(spreadsheetId=spreadsheet_id, body=body)
+        .execute
+    )
+    return (
+        f"Added {vt} data validation to range '{range_name}' in spreadsheet "
+        f"'{spreadsheet_id}' for {user_google_email}."
+    )
+
+
+@server.tool()
+@handle_http_errors("add_sheet_named_range", service_type="sheets")
+@require_google_service("sheets", "sheets_write")
+async def add_sheet_named_range(
+    service,
+    user_google_email: str,
+    spreadsheet_id: str,
+    name: str,
+    range_name: str,
+) -> str:
+    """
+    Create a named range that can be referenced by formulas.
+
+    Args:
+        name: The name of the range (must be a valid Sheets identifier, e.g., "TaxRate").
+        range_name: A1 range (e.g., "Sheet1!A1:B10").
+    """
+    logger.info(
+        f"[add_sheet_named_range] spreadsheet='{spreadsheet_id}' name='{name}' range='{range_name}'"
+    )
+
+    meta = await asyncio.to_thread(
+        service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute
+    )
+    grid_range = _parse_a1_range(range_name, meta.get("sheets", []))
+
+    body = {
+        "requests": [
+            {"addNamedRange": {"namedRange": {"name": name, "range": grid_range}}}
+        ]
+    }
+    result = await asyncio.to_thread(
+        service.spreadsheets()
+        .batchUpdate(spreadsheetId=spreadsheet_id, body=body)
+        .execute
+    )
+    replies = result.get("replies", [])
+    named_id = "unknown"
+    if replies and "addNamedRange" in replies[0]:
+        named_id = replies[0]["addNamedRange"]["namedRange"].get("namedRangeId", "unknown")
+    return (
+        f"Created named range '{name}' (ID: {named_id}) covering '{range_name}' "
+        f"in spreadsheet '{spreadsheet_id}' for {user_google_email}."
+    )
+
+
+@server.tool()
+@handle_http_errors("protect_sheet_range", service_type="sheets")
+@require_google_service("sheets", "sheets_write")
+async def protect_sheet_range(
+    service,
+    user_google_email: str,
+    spreadsheet_id: str,
+    range_name: str,
+    description: Optional[str] = None,
+    editor_emails: Optional[List[str]] = None,
+    warning_only: bool = False,
+) -> str:
+    """
+    Protect a range so that only specified editors can modify it.
+
+    Args:
+        range_name: A1 range to protect.
+        description: Optional description of the protection.
+        editor_emails: List of user emails allowed to edit. If omitted, only the owner can.
+        warning_only: If True, shows warning but allows edits. If False, strictly blocks.
+    """
+    logger.info(
+        f"[protect_sheet_range] spreadsheet='{spreadsheet_id}' range='{range_name}'"
+    )
+
+    meta = await asyncio.to_thread(
+        service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute
+    )
+    grid_range = _parse_a1_range(range_name, meta.get("sheets", []))
+
+    protected: dict = {"range": grid_range, "warningOnly": warning_only}
+    if description:
+        protected["description"] = description
+    if editor_emails:
+        protected["editors"] = {"users": editor_emails}
+
+    body = {"requests": [{"addProtectedRange": {"protectedRange": protected}}]}
+    result = await asyncio.to_thread(
+        service.spreadsheets()
+        .batchUpdate(spreadsheetId=spreadsheet_id, body=body)
+        .execute
+    )
+    replies = result.get("replies", [])
+    prot_id = "unknown"
+    if replies and "addProtectedRange" in replies[0]:
+        prot_id = replies[0]["addProtectedRange"]["protectedRange"].get(
+            "protectedRangeId", "unknown"
+        )
+    mode = "warning-only" if warning_only else "strict"
+    return (
+        f"Protected range '{range_name}' (ID: {prot_id}, mode: {mode}) in spreadsheet "
+        f"'{spreadsheet_id}' for {user_google_email}."
+    )
+
+
+@server.tool()
+@handle_http_errors("manage_sheet_tabs", service_type="sheets")
+@require_google_service("sheets", "sheets_write")
+async def manage_sheet_tabs(
+    service,
+    user_google_email: str,
+    spreadsheet_id: str,
+    action: str,
+    sheet_id: Optional[int] = None,
+    sheet_name: Optional[str] = None,
+    new_name: Optional[str] = None,
+) -> str:
+    """
+    Rename, delete, or duplicate a sheet tab within a spreadsheet.
+
+    Args:
+        action: One of "rename", "delete", "duplicate".
+        sheet_id: Numeric sheet ID (preferred). Either this or sheet_name required.
+        sheet_name: Sheet tab name. Used if sheet_id not provided (will be looked up).
+        new_name: Required for "rename" and "duplicate" actions — the new tab name.
+    """
+    logger.info(
+        f"[manage_sheet_tabs] action='{action}' sheet_id={sheet_id} sheet_name='{sheet_name}'"
+    )
+
+    act = action.lower()
+    if act not in {"rename", "delete", "duplicate"}:
+        raise UserInputError("action must be one of: rename, delete, duplicate.")
+
+    # Resolve sheet_id from sheet_name if needed
+    if sheet_id is None:
+        if not sheet_name:
+            raise UserInputError("Must provide either sheet_id or sheet_name.")
+        meta = await asyncio.to_thread(
+            service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute
+        )
+        selected = _select_sheet(meta.get("sheets", []), sheet_name)
+        sheet_id = selected.get("properties", {}).get("sheetId")
+        if sheet_id is None:
+            raise UserInputError(f"Unable to resolve sheet_id for '{sheet_name}'.")
+
+    if act == "rename":
+        if not new_name:
+            raise UserInputError("rename requires new_name.")
+        request = {
+            "updateSheetProperties": {
+                "properties": {"sheetId": sheet_id, "title": new_name},
+                "fields": "title",
+            }
+        }
+    elif act == "delete":
+        request = {"deleteSheet": {"sheetId": sheet_id}}
+    else:  # duplicate
+        dup: dict = {"sourceSheetId": sheet_id}
+        if new_name:
+            dup["newSheetName"] = new_name
+        request = {"duplicateSheet": dup}
+
+    body = {"requests": [request]}
+    result = await asyncio.to_thread(
+        service.spreadsheets()
+        .batchUpdate(spreadsheetId=spreadsheet_id, body=body)
+        .execute
+    )
+
+    detail = ""
+    replies = result.get("replies", [])
+    if act == "duplicate" and replies and "duplicateSheet" in replies[0]:
+        new_id = replies[0]["duplicateSheet"]["properties"].get("sheetId", "unknown")
+        new_title = replies[0]["duplicateSheet"]["properties"].get("title", "unknown")
+        detail = f" New sheet: '{new_title}' (ID: {new_id})."
+
+    return (
+        f"Completed '{act}' on sheet_id={sheet_id} in spreadsheet '{spreadsheet_id}' "
+        f"for {user_google_email}.{detail}"
+    )
+
+
 # Create comment management tools for sheets
 _comment_tools = create_comment_tools("spreadsheet", "spreadsheet_id")
 

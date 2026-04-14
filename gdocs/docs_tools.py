@@ -50,6 +50,7 @@ from gdocs.docs_markdown import (
     format_comments_appendix,
     parse_drive_comments,
 )
+from gdocs.docs_markdown_writer import markdown_to_docs_requests
 from gdocs.operation_schemas import BatchDocOperations
 
 # Import operation managers for complex business logic
@@ -349,6 +350,7 @@ async def create_doc(
     user_google_email: str,
     title: str,
     content: str = "",
+    format_as_markdown: bool = False,
 ) -> str:
     """
     Creates a new Google Doc and optionally inserts initial content.
@@ -364,27 +366,38 @@ async def create_doc(
     Args:
         user_google_email: User's Google email address
         title: Title of the new document
-        content: Optional initial plain text content to insert
+        content: Optional initial content to insert.
+        format_as_markdown: If True, parses `content` as markdown and inserts it
+            with native Docs formatting (headings, bold, italic, bullet/numbered
+            lists). Supports `# H1`-`### H3`, `**bold**`, `*italic*`, `- bullets`,
+            `1. numbered`. Default False (insert as plain text).
 
     Returns:
         str: Confirmation message with document ID, link, and initial document state.
     """
-    logger.info(f"[create_doc] Invoked. Email: '{user_google_email}', Title='{title}'")
+    logger.info(
+        f"[create_doc] Invoked. Email: '{user_google_email}', Title='{title}', markdown={format_as_markdown}"
+    )
 
     doc = await asyncio.to_thread(
         service.documents().create(body={"title": title}).execute
     )
     doc_id = doc.get("documentId")
     if content:
-        requests = [{"insertText": {"location": {"index": 1}, "text": content}}]
-        await asyncio.to_thread(
-            service.documents()
-            .batchUpdate(documentId=doc_id, body={"requests": requests})
-            .execute
-        )
+        if format_as_markdown:
+            requests = markdown_to_docs_requests(content, start_index=1)
+        else:
+            requests = [{"insertText": {"location": {"index": 1}, "text": content}}]
+        if requests:
+            await asyncio.to_thread(
+                service.documents()
+                .batchUpdate(documentId=doc_id, body={"requests": requests})
+                .execute
+            )
     link = f"https://docs.google.com/document/d/{doc_id}/edit"
     if content:
-        content_note = f"Initial content: {len(content)} characters inserted."
+        suffix = " as markdown" if format_as_markdown else ""
+        content_note = f"Initial content: {len(content)} characters inserted{suffix}."
     else:
         content_note = "Document is empty (body starts at index 1, total length 2)."
     msg = (
@@ -425,12 +438,19 @@ async def modify_doc_text(
     clear_link: bool = None,
     baseline_offset: str = None,
     small_caps: bool = None,
+    format_as_markdown: bool = False,
 ) -> str:
     """
     Modifies text in a Google Doc - can insert/replace text and/or apply formatting in a single operation.
 
     TIP: To append text to the end of the document without calculating indices,
     set end_of_segment=true. This avoids index calculation errors.
+
+    MARKDOWN MODE: Set format_as_markdown=True to parse `text` as markdown and
+    insert it with native Docs formatting (headings, bold, italic, bullets,
+    numbered lists). Works for both plain insertion and range replacement.
+    When enabled, explicit formatting parameters (bold, italic, font_size, etc.)
+    must NOT be set — markdown brings its own formatting.
 
     For ordinary header/footer text, prefer update_doc_headers_footers.
     Only pass segment_id when you already have a real header/footer/footnote
@@ -493,6 +513,105 @@ async def modify_doc_text(
     ]
     if text is None and not any(p is not None for p in formatting_params):
         return "Error: Must provide either 'text' to insert/replace, or formatting parameters (bold, italic, underline, strikethrough, font_size, font_family, text_color, background_color, link_url)."
+
+    # Markdown mode: mutually exclusive with explicit formatting params
+    if format_as_markdown:
+        if text is None:
+            return "Error: format_as_markdown=True requires 'text' to be provided."
+        if any(p is not None for p in formatting_params):
+            return (
+                "Error: format_as_markdown=True cannot be combined with explicit "
+                "formatting parameters (bold, italic, text_color, etc.). Markdown "
+                "provides its own formatting via syntax like '**bold**' and '# Heading'."
+            )
+
+        md_requests: List[dict] = []
+        operations_summary = []
+        if end_index is not None and end_index > start_index:
+            # Replace range with markdown
+            if end_of_segment:
+                return "Error: end_of_segment cannot be combined with text replacement."
+            if start_index == 0 and segment_id is None and tab_id is None:
+                # Mirror the existing index-0 workaround: insert at 1, then delete original
+                md_requests.extend(
+                    markdown_to_docs_requests(
+                        text, start_index=1, tab_id=tab_id, segment_id=segment_id
+                    )
+                )
+                # After inserting the markdown, the original text shifted by len(combined)
+                combined_length = sum(
+                    len(r["insertText"]["text"])
+                    for r in md_requests
+                    if "insertText" in r
+                )
+                md_requests.append(
+                    create_delete_range_request(
+                        1 + combined_length,
+                        end_index + combined_length,
+                        tab_id,
+                        segment_id=segment_id,
+                    )
+                )
+                operations_summary.append(
+                    f"Replaced range [{start_index}, {end_index}) with markdown"
+                )
+            else:
+                md_requests.append(
+                    create_delete_range_request(
+                        start_index, end_index, tab_id, segment_id=segment_id
+                    )
+                )
+                md_requests.extend(
+                    markdown_to_docs_requests(
+                        text,
+                        start_index=start_index,
+                        tab_id=tab_id,
+                        segment_id=segment_id,
+                    )
+                )
+                operations_summary.append(
+                    f"Replaced range [{start_index}, {end_index}) with markdown"
+                )
+        else:
+            # Pure insertion
+            insert_index = (
+                1
+                if start_index == 0
+                and not end_of_segment
+                and segment_id is None
+                and tab_id is None
+                else start_index
+            )
+            md_requests.extend(
+                markdown_to_docs_requests(
+                    text,
+                    start_index=insert_index,
+                    tab_id=tab_id,
+                    segment_id=segment_id,
+                    end_of_segment=end_of_segment,
+                )
+            )
+            if end_of_segment:
+                operations_summary.append(
+                    f"Inserted markdown at end of segment '{segment_id or 'body'}'"
+                )
+            else:
+                operations_summary.append(f"Inserted markdown at index {insert_index}")
+
+        if not md_requests:
+            return "Markdown produced no document changes."
+
+        await asyncio.to_thread(
+            service.documents()
+            .batchUpdate(documentId=document_id, body={"requests": md_requests})
+            .execute
+        )
+        link = f"https://docs.google.com/document/d/{document_id}/edit"
+        return (
+            f"Applied markdown to document {document_id}: "
+            f"{'; '.join(operations_summary)}. "
+            f"({len(md_requests)} API requests). Link: {link}"
+        )
 
     # Validate text formatting params if provided
     if any(p is not None for p in formatting_params):
@@ -2446,6 +2565,312 @@ async def update_doc_tab(
     return (
         f"Renamed tab '{tab_id}' to '{title}' in document {document_id}. Link: {link}"
     )
+
+
+@server.tool()
+@handle_http_errors("insert_doc_markdown", service_type="docs")
+@require_google_service("docs", "docs_write")
+async def insert_doc_markdown(
+    service: Any,
+    user_google_email: str,
+    document_id: str,
+    markdown: str,
+    index: int = 1,
+    tab_id: Optional[str] = None,
+    segment_id: Optional[str] = None,
+    end_of_segment: bool = False,
+) -> str:
+    """
+    Insert markdown content into a Google Doc with native formatting applied.
+
+    Supports `# H1`-`### H3`, `**bold**`, `*italic*`, `- bullets`, `1. numbered`.
+    Converts markdown into Google Docs API batch requests so headings, lists,
+    and text emphasis render as proper Docs styles rather than raw markdown text.
+
+    Args:
+        document_id: ID of the document.
+        markdown: Markdown content to insert.
+        index: Document index at which to insert (default 1 — start of body).
+            Ignored when end_of_segment=True.
+        tab_id: Optional tab ID to target a specific tab.
+        segment_id: Optional header/footer/footnote segment ID.
+        end_of_segment: If True, append to the end of the targeted segment/body
+            without needing to calculate an index. Most reliable for empty
+            segments; for non-empty segments, use inspect_doc_structure first
+            to find the exact insertion index.
+    """
+    logger.info(
+        f"[insert_doc_markdown] Doc={document_id}, index={index}, md_len={len(markdown)}, "
+        f"tab={tab_id}, seg={segment_id}, end={end_of_segment}"
+    )
+    if not markdown:
+        return "No markdown content provided."
+    requests = markdown_to_docs_requests(
+        markdown,
+        start_index=index,
+        tab_id=tab_id,
+        segment_id=segment_id,
+        end_of_segment=end_of_segment,
+    )
+    if not requests:
+        return "Markdown produced no document changes."
+    await asyncio.to_thread(
+        service.documents()
+        .batchUpdate(documentId=document_id, body={"requests": requests})
+        .execute
+    )
+    link = f"https://docs.google.com/document/d/{document_id}/edit"
+    where = "end of segment" if end_of_segment else f"index {index}"
+    return (
+        f"Inserted {len(markdown)} characters of markdown ({len(requests)} API "
+        f"requests) into document {document_id} at {where}. Link: {link}"
+    )
+
+
+@server.tool()
+@handle_http_errors("insert_doc_link", service_type="docs")
+@require_google_service("docs", "docs_write")
+async def insert_doc_link(
+    service: Any,
+    user_google_email: str,
+    document_id: str,
+    text: str,
+    url: str,
+    index: int = 1,
+    tab_id: Optional[str] = None,
+) -> str:
+    """
+    Insert clickable linked text at a specified index in a document.
+
+    Args:
+        document_id: ID of the document.
+        text: The visible text for the link.
+        url: The target URL (http/https/mailto supported).
+        index: Document index at which to insert the link. Defaults to 1.
+        tab_id: Optional tab ID to scope the insertion to.
+    """
+    logger.info(
+        f"[insert_doc_link] Doc={document_id}, index={index}, url={url}"
+    )
+    if not text or not url:
+        return "Error: both 'text' and 'url' are required."
+
+    location: dict = {"index": index}
+    if tab_id:
+        location["tabId"] = tab_id
+    text_range: dict = {"startIndex": index, "endIndex": index + len(text)}
+    if tab_id:
+        text_range["tabId"] = tab_id
+
+    requests = [
+        {"insertText": {"location": location, "text": text}},
+        {
+            "updateTextStyle": {
+                "range": text_range,
+                "textStyle": {"link": {"url": url}},
+                "fields": "link",
+            }
+        },
+    ]
+    await asyncio.to_thread(
+        service.documents()
+        .batchUpdate(documentId=document_id, body={"requests": requests})
+        .execute
+    )
+    link = f"https://docs.google.com/document/d/{document_id}/edit"
+    return (
+        f"Inserted hyperlink '{text}' -> {url} at index {index} in document "
+        f"{document_id}. Link: {link}"
+    )
+
+
+@server.tool()
+@handle_http_errors("insert_doc_person_chip", service_type="docs")
+@require_google_service("docs", "docs_write")
+async def insert_doc_person_chip(
+    service: Any,
+    user_google_email: str,
+    document_id: str,
+    email: str,
+    index: int = 1,
+    tab_id: Optional[str] = None,
+) -> str:
+    """
+    Insert an @mention person chip at a specified index.
+
+    The person's email is inserted as text with a `mailto:` link; Google Docs
+    auto-converts this into a rich person chip when rendering.
+
+    Args:
+        document_id: ID of the document.
+        email: Email address of the person to mention.
+        index: Document index at which to insert.
+        tab_id: Optional tab ID to scope the insertion to.
+    """
+    logger.info(
+        f"[insert_doc_person_chip] Doc={document_id}, email={email}, index={index}"
+    )
+    if not email:
+        return "Error: email is required."
+
+    location: dict = {"index": index}
+    if tab_id:
+        location["tabId"] = tab_id
+    text_range: dict = {"startIndex": index, "endIndex": index + len(email)}
+    if tab_id:
+        text_range["tabId"] = tab_id
+
+    requests = [
+        {"insertText": {"location": location, "text": email}},
+        {
+            "updateTextStyle": {
+                "range": text_range,
+                "textStyle": {"link": {"url": f"mailto:{email}"}},
+                "fields": "link",
+            }
+        },
+    ]
+    await asyncio.to_thread(
+        service.documents()
+        .batchUpdate(documentId=document_id, body={"requests": requests})
+        .execute
+    )
+    return (
+        f"Inserted person chip for {email} at index {index} in document {document_id}."
+    )
+
+
+@server.tool()
+@handle_http_errors("insert_doc_file_chip", service_type="docs")
+@require_google_service("docs", "docs_write")
+async def insert_doc_file_chip(
+    service: Any,
+    user_google_email: str,
+    document_id: str,
+    file_url: str,
+    display_text: Optional[str] = None,
+    index: int = 1,
+    tab_id: Optional[str] = None,
+) -> str:
+    """
+    Insert a Drive file smart chip at the specified index.
+
+    A Drive file URL inserted as linked text auto-converts into a file chip
+    in Google Docs, showing the file's name, icon, and preview.
+
+    Args:
+        document_id: ID of the document.
+        file_url: Full Drive file URL (e.g. "https://docs.google.com/document/d/.../edit").
+        display_text: Optional visible text for the link. Defaults to the URL.
+        index: Document index at which to insert.
+        tab_id: Optional tab ID to scope the insertion to.
+    """
+    logger.info(
+        f"[insert_doc_file_chip] Doc={document_id}, url={file_url}, index={index}"
+    )
+    if not file_url:
+        return "Error: file_url is required."
+
+    text = display_text or file_url
+    location: dict = {"index": index}
+    if tab_id:
+        location["tabId"] = tab_id
+    text_range: dict = {"startIndex": index, "endIndex": index + len(text)}
+    if tab_id:
+        text_range["tabId"] = tab_id
+
+    requests = [
+        {"insertText": {"location": location, "text": text}},
+        {
+            "updateTextStyle": {
+                "range": text_range,
+                "textStyle": {"link": {"url": file_url}},
+                "fields": "link",
+            }
+        },
+    ]
+    await asyncio.to_thread(
+        service.documents()
+        .batchUpdate(documentId=document_id, body={"requests": requests})
+        .execute
+    )
+    return (
+        f"Inserted file chip linking to {file_url} at index {index} in document "
+        f"{document_id}."
+    )
+
+
+@server.tool()
+@handle_http_errors("get_doc_smart_chips", is_read_only=True, service_type="docs")
+@require_google_service("docs", "docs_readonly")
+async def get_doc_smart_chips(
+    service: Any,
+    user_google_email: str,
+    document_id: str,
+) -> str:
+    """
+    Extract all smart chips (person mentions, file/rich links) from a document.
+
+    Walks the document body and returns each chip's type, position, and properties.
+
+    Args:
+        document_id: ID of the document.
+    """
+    logger.info(f"[get_doc_smart_chips] Doc={document_id}")
+
+    doc = await asyncio.to_thread(
+        service.documents().get(documentId=document_id).execute
+    )
+
+    chips: List[dict] = []
+    body = doc.get("body", {})
+    for item in body.get("content", []):
+        paragraph = item.get("paragraph")
+        if not paragraph:
+            continue
+        for el in paragraph.get("elements", []):
+            start = el.get("startIndex")
+            end = el.get("endIndex")
+            if "person" in el:
+                person = el["person"].get("personProperties", {}) or {}
+                chips.append(
+                    {
+                        "type": "person",
+                        "startIndex": start,
+                        "endIndex": end,
+                        "name": person.get("name"),
+                        "email": person.get("email"),
+                    }
+                )
+            elif "richLink" in el:
+                rich = el["richLink"].get("richLinkProperties", {}) or {}
+                chips.append(
+                    {
+                        "type": "rich_link",
+                        "startIndex": start,
+                        "endIndex": end,
+                        "title": rich.get("title"),
+                        "uri": rich.get("uri"),
+                        "mimeType": rich.get("mimeType"),
+                    }
+                )
+
+    if not chips:
+        return f"No smart chips found in document {document_id}."
+
+    lines = [f"Found {len(chips)} smart chip(s) in document {document_id}:"]
+    for i, chip in enumerate(chips, 1):
+        if chip["type"] == "person":
+            lines.append(
+                f"  {i}. [person] @{chip.get('email') or chip.get('name') or 'unknown'} "
+                f"(range {chip['startIndex']}-{chip['endIndex']})"
+            )
+        else:
+            lines.append(
+                f"  {i}. [link] {chip.get('title') or '(untitled)'} — {chip.get('uri')} "
+                f"(range {chip['startIndex']}-{chip['endIndex']})"
+            )
+    return "\n".join(lines)
 
 
 # Create comment management tools for documents

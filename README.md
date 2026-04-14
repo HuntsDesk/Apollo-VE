@@ -19,6 +19,8 @@
 
 </div>
 
+> **Apollo-VE — enhanced fork.** [`HuntsDesk/Apollo-VE`](https://github.com/HuntsDesk/Apollo-VE) adds **25 additional tools** on top of [`taylorwilsdon/google_workspace_mcp`](https://github.com/taylorwilsdon/google_workspace_mcp) — deeper Slides automation (shapes, text boxes, speaker notes, reorder/duplicate, backgrounds, styling), native markdown-to-Docs rendering, Docs smart chips (person/file/get), advanced Sheets controls (data validation, named ranges, range protection, tab management), recursive Drive folder copy, and Drive revision history (list + restore). Feature ideas ported from [`blakesplay/apollo`](https://github.com/blakesplay/apollo). See the [**Available Tools**](#-available-tools) tables below — additions are tagged *Extended* or *Complete*. All 646 tests pass (617 upstream + 29 new). Upstream commits from Taylor's repo are merged in periodically — see [Pulling Upstream Changes](#-pulling-upstream-changes) below.
+
 <div align="center">
 <a href="https://www.pulsemcp.com/servers/taylorwilsdon-google-workspace">
 <img width="375" src="https://github.com/user-attachments/assets/0794ef1a-dc1c-447d-9661-9c704d7acc9d" align="center"/>
@@ -697,6 +699,9 @@ cp .env.oauth21 .env
 | <sub>`set_drive_file_permissions`</sub> | <sub>Extended</sub> | <sub>Set link sharing and file-level sharing settings</sub> |
 | <sub>`get_drive_file_permissions`</sub> | <sub>Complete</sub> | <sub>Get detailed file permissions</sub> |
 | <sub>`check_drive_file_public_access`</sub> | <sub>Complete</sub> | <sub>Check public sharing status</sub> |
+| <sub>`copy_drive_folder`</sub> | <sub>Complete</sub> | <sub>Recursively copy a folder tree (folders + files) to a new location</sub> |
+| <sub>`get_drive_revisions`</sub> | <sub>Complete</sub> | <sub>List a file's revision history (modified time, user, size)</sub> |
+| <sub>`restore_drive_revision`</sub> | <sub>Complete</sub> | <sub>Restore a binary file to a prior revision (native Docs/Sheets/Slides not supported — use Docs UI)</sub> |
 
 #### 📧 Gmail <sub>[`gmail_tools.py`](gmail/gmail_tools.py)</sub>
 
@@ -764,14 +769,16 @@ Saved files expire after 1 hour and are cleaned up automatically.
 | <sub>Tool</sub> | <sub>Tier</sub> | <sub>Description</sub> |
 |------|------|-------------|
 | <sub>`get_doc_content`</sub> | <sub>Core</sub> | <sub>Extract document text</sub> |
-| <sub>`create_doc`</sub> | <sub>Core</sub> | <sub>Create new documents</sub> |
-| <sub>`modify_doc_text`</sub> | <sub>Core</sub> | <sub>Insert, replace, and richly format text with tab/segment targeting, append-to-segment support, advanced typography, and link management</sub> |
+| <sub>`create_doc`</sub> | <sub>Core</sub> | <sub>Create new documents (set `format_as_markdown=True` to render markdown content natively)</sub> |
+| <sub>`modify_doc_text`</sub> | <sub>Core</sub> | <sub>Insert, replace, and richly format text with tab/segment targeting, append-to-segment support, advanced typography, link management, and native markdown rendering (`format_as_markdown=True`)</sub> |
 | <sub>`search_docs`</sub> | <sub>Extended</sub> | <sub>Find documents by name</sub> |
 | <sub>`find_and_replace_doc`</sub> | <sub>Extended</sub> | <sub>Find and replace text</sub> |
 | <sub>`list_docs_in_folder`</sub> | <sub>Extended</sub> | <sub>List docs in folder</sub> |
 | <sub>`insert_doc_elements`</sub> | <sub>Extended</sub> | <sub>Add tables, lists, page breaks</sub> |
 | <sub>`update_paragraph_style`</sub> | <sub>Extended</sub> | <sub>Apply advanced paragraph styling including headings, spacing, direction, pagination controls, shading, and bulleted/numbered/checkbox lists with nesting</sub> |
 | <sub>`get_doc_as_markdown`</sub> | <sub>Extended</sub> | <sub>Export document as formatted Markdown with optional comments</sub> |
+| <sub>`insert_doc_markdown`</sub> | <sub>Extended</sub> | <sub>Insert markdown content with native Docs formatting (headings, bold/italic, bullets, numbered lists); supports tab/segment targeting and end-of-segment append</sub> |
+| <sub>`insert_doc_link`</sub> | <sub>Extended</sub> | <sub>Insert clickable linked text at a specified index (tab-aware)</sub> |
 | <sub>`insert_doc_image`</sub> | <sub>Complete</sub> | <sub>Insert images from Drive/URLs</sub> |
 | <sub>`update_doc_headers_footers`</sub> | <sub>Complete</sub> | <sub>Create or update headers and footers with correct segment-aware writes</sub> |
 | <sub>`batch_update_doc`</sub> | <sub>Complete</sub> | <sub>Execute atomic multi-step Docs API operations including named ranges, section breaks, document/section layout, header/footer creation, segment-aware inserts, images, tables, and rich formatting</sub> |
@@ -781,6 +788,9 @@ Saved files expire after 1 hour and are cleaned up automatically.
 | <sub>`debug_table_structure`</sub> | <sub>Complete</sub> | <sub>Debug table issues</sub> |
 | <sub>`list_document_comments`</sub> | <sub>Complete</sub> | <sub>List all document comments</sub> |
 | <sub>`manage_document_comment`</sub> | <sub>Complete</sub> | <sub>Create, reply to, or resolve comments</sub> |
+| <sub>`insert_doc_person_chip`</sub> | <sub>Complete</sub> | <sub>Insert an @mention person smart chip by email</sub> |
+| <sub>`insert_doc_file_chip`</sub> | <sub>Complete</sub> | <sub>Insert a Drive file smart chip from its URL</sub> |
+| <sub>`get_doc_smart_chips`</sub> | <sub>Complete</sub> | <sub>Extract all person and rich-link smart chips from the document</sub> |
 
 #### 📊 Google Sheets <sub>[`sheets_tools.py`](gsheets/sheets_tools.py)</sub>
 
@@ -798,6 +808,10 @@ Saved files expire after 1 hour and are cleaned up automatically.
 | <sub>`list_spreadsheet_comments`</sub> | <sub>Complete</sub> | <sub>List all spreadsheet comments</sub> |
 | <sub>`manage_spreadsheet_comment`</sub> | <sub>Complete</sub> | <sub>Create, reply to, or resolve comments</sub> |
 | <sub>`manage_conditional_formatting`</sub> | <sub>Complete</sub> | <sub>Add, update, or delete conditional formatting rules</sub> |
+| <sub>`add_sheet_data_validation`</sub> | <sub>Complete</sub> | <sub>Add dropdowns, number bounds, date/text rules, or custom-formula validation to a range</sub> |
+| <sub>`add_sheet_named_range`</sub> | <sub>Complete</sub> | <sub>Create a named range that can be referenced by formulas</sub> |
+| <sub>`protect_sheet_range`</sub> | <sub>Complete</sub> | <sub>Protect a range with optional editor whitelist and warning-only mode</sub> |
+| <sub>`manage_sheet_tabs`</sub> | <sub>Complete</sub> | <sub>Rename, delete, or duplicate sheet tabs (single action-based tool)</sub> |
 
 #### 🖼️ Google Slides <sub>[`slides_tools.py`](gslides/slides_tools.py)</sub>
 
@@ -808,6 +822,19 @@ Saved files expire after 1 hour and are cleaned up automatically.
 | <sub>`batch_update_presentation`</sub> | <sub>Extended</sub> | <sub>Apply multiple updates</sub> |
 | <sub>`get_page`</sub> | <sub>Extended</sub> | <sub>Get specific slide information</sub> |
 | <sub>`get_page_thumbnail`</sub> | <sub>Extended</sub> | <sub>Generate slide thumbnails</sub> |
+| <sub>`format_slides_text`</sub> | <sub>Extended</sub> | <sub>Apply text formatting (bold/italic/underline/strikethrough/color/font/size) to a slide element</sub> |
+| <sub>`format_slides_paragraph`</sub> | <sub>Extended</sub> | <sub>Apply paragraph alignment, line spacing, spacing above/below, and bullet presets</sub> |
+| <sub>`style_slides_shape`</sub> | <sub>Extended</sub> | <sub>Style a shape's fill color, outline color/weight, and dash style</sub> |
+| <sub>`set_slides_background`</sub> | <sub>Extended</sub> | <sub>Set the background color of a slide</sub> |
+| <sub>`create_slides_text_box`</sub> | <sub>Extended</sub> | <sub>Create a positioned text box with initial text and optional formatting</sub> |
+| <sub>`create_slides_shape`</sub> | <sub>Extended</sub> | <sub>Create a positioned shape (rectangle, ellipse, triangle, star, arrow, etc.)</sub> |
+| <sub>`get_slides_speaker_notes`</sub> | <sub>Extended</sub> | <sub>Read speaker notes from a slide</sub> |
+| <sub>`update_slides_speaker_notes`</sub> | <sub>Extended</sub> | <sub>Replace speaker notes on a slide</sub> |
+| <sub>`insert_slides_image`</sub> | <sub>Extended</sub> | <sub>Insert an image onto a slide from a public URL</sub> |
+| <sub>`delete_slides_element`</sub> | <sub>Extended</sub> | <sub>Delete a slide or any page element by object ID</sub> |
+| <sub>`replace_slides_text`</sub> | <sub>Extended</sub> | <sub>Find and replace text across an entire presentation</sub> |
+| <sub>`duplicate_slide`</sub> | <sub>Extended</sub> | <sub>Duplicate a slide (or any object) and return the new object ID</sub> |
+| <sub>`reorder_slides`</sub> | <sub>Extended</sub> | <sub>Move one or more slides to a new position</sub> |
 | <sub>`list_presentation_comments`</sub> | <sub>Complete</sub> | <sub>List all presentation comments</sub> |
 | <sub>`manage_presentation_comment`</sub> | <sub>Complete</sub> | <sub>Create, reply to, or resolve comments</sub> |
 
@@ -1353,6 +1380,31 @@ When calling a tool:
 3. Google provides an authorization code
 4. Paste the code when prompted (or it's handled automatically)
 5. Server completes authentication and retries your request
+
+---
+
+## <span style="color:#adbcbc">🔄 Pulling Upstream Changes</span>
+
+Apollo-VE tracks [`taylorwilsdon/google_workspace_mcp`](https://github.com/taylorwilsdon/google_workspace_mcp) as an upstream remote so improvements from the original project can be merged in periodically.
+
+```bash
+# First time only — add upstream (already configured in this repo's clones)
+git remote add upstream https://github.com/taylorwilsdon/google_workspace_mcp.git
+
+# Fetch upstream commits
+git fetch upstream
+
+# Merge upstream main into your current branch
+git merge upstream/main
+
+# Or rebase instead, if you prefer linear history
+# git rebase upstream/main
+
+# Push to your fork
+git push origin main
+```
+
+Because Apollo-VE adds 25 tools and modifies `gslides/slides_tools.py`, `gdocs/docs_tools.py`, `gsheets/sheets_tools.py`, `gdrive/drive_tools.py`, and `core/tool_tiers.yaml`, merges will occasionally produce conflicts in those files. Resolve by keeping both sides' changes and re-running the test suite (`uv run pytest tests/`) before pushing.
 
 ---
 

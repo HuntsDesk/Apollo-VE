@@ -2199,6 +2199,10 @@
         "default": null,
         "type": "integer"
       },
+      "format_as_markdown": {
+        "default": false,
+        "type": "boolean"
+      },
       "italic": {
         "default": null,
         "type": "boolean"
