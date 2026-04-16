@@ -805,6 +805,7 @@ async def create_drive_file(
             else:
                 # Stream download to temp file with SSRF protection, then upload
                 with NamedTemporaryFile() as temp_file:
+
                     async def _write_chunk(chunk: bytes) -> None:
                         await asyncio.to_thread(temp_file.write, chunk)
 

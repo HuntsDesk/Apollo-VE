@@ -908,9 +908,7 @@ async def _resolve_url_attachments(
         try:
             local = _try_read_local_attachment(url)
         except Exception as exc:
-            logger.exception(
-                "Failed to read local attachment URL %s", _redact_url(url)
-            )
+            logger.exception("Failed to read local attachment URL %s", _redact_url(url))
             resolved.append(_build_attachment_error_entry(att, exc))
             continue
         if local is not None:
