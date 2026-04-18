@@ -2934,6 +2934,536 @@ async def get_doc_smart_chips(
     return "\n".join(lines)
 
 
+# -- apply_continuous_numbering ---------------------------------------------
+# Ported from blakesplay/apollo (TypeScript → Python), final state as of
+# commit 6b5b577 on apollo/master. Converts plain-text "N. " step prefixes
+# into a real Google Docs numbered list whose numbering continues across
+# intervening prompt paragraphs and sub-bullet lists. Idempotent.
+
+_NUMERIC_GLYPHS = frozenset(
+    {
+        "DECIMAL",
+        "ZERO_DECIMAL",
+        "UPPER_ALPHA",
+        "ALPHA",
+        "UPPER_ROMAN",
+        "ROMAN",
+        "LOWER_ALPHA",
+        "LOWER_ROMAN",
+    }
+)
+
+_STEP_PREFIX_RE = re.compile(r"^(\d+)\.\s")
+
+
+def _acn_is_numeric_list(lists_map: dict, list_id: Optional[str]) -> bool:
+    """Return True if a list's level-0 glyph is one of the numeric styles."""
+    if not list_id:
+        return False
+    lvls = (lists_map.get(list_id, {}) or {}).get("listProperties", {}).get(
+        "nestingLevels", []
+    ) or []
+    g0 = lvls[0].get("glyphType") if lvls else None
+    return bool(g0 and g0 in _NUMERIC_GLYPHS)
+
+
+def _acn_scan_paragraphs(
+    content: list, lists_map: dict
+) -> list:
+    """
+    Walk document content and classify each paragraph for apply_continuous_numbering.
+    Returns a list of dicts with: start, end, text, step_number, prefix_len,
+    has_bullet, numbered_list_id, is_italic.
+    """
+    out = []
+    for el in content or []:
+        if "paragraph" not in el:
+            continue
+        p = el["paragraph"]
+        text = "".join(
+            (e.get("textRun", {}) or {}).get("content", "")
+            for e in (p.get("elements") or [])
+        )
+        m = _STEP_PREFIX_RE.match(text)
+        bullet = p.get("bullet") or {}
+        bullet_list_id = bullet.get("listId")
+        bullet_level = bullet.get("nestingLevel", 0) or 0
+        in_numbered_list = bullet_level == 0 and _acn_is_numeric_list(
+            lists_map, bullet_list_id
+        )
+        # Italic-prompt detection: any non-whitespace text run with italic style.
+        is_italic = False
+        for e in p.get("elements") or []:
+            tr = e.get("textRun")
+            if not tr:
+                continue
+            c = tr.get("content", "") or ""
+            if not c.strip():
+                continue
+            if (tr.get("textStyle") or {}).get("italic"):
+                is_italic = True
+                break
+        out.append(
+            {
+                "start": el["startIndex"],
+                "end": el["endIndex"],
+                "text": text,
+                "step_number": int(m.group(1)) if m else None,
+                "prefix_len": len(m.group(0)) if m else 0,
+                "has_bullet": bool(p.get("bullet")),
+                "numbered_list_id": bullet_list_id if in_numbered_list else None,
+                "is_italic": is_italic,
+            }
+        )
+    return out
+
+
+def _acn_group_sequences(paragraphs: list) -> list:
+    """
+    Group paragraphs into numbered sequences.
+
+    Primary: contiguous "N. " text-prefix runs start at 1 and extend
+    through all following plain-text-numbered paragraphs.
+
+    Fallback: when a paragraph has no text prefix but IS already an item of
+    a numbered list, group by listId — consecutive paragraphs sharing a
+    listId form one sequence. This is what makes the action idempotent
+    (re-running after it has already converted a list doesn't duplicate work).
+    """
+    sequences: list = []
+    cur: Optional[list] = None
+    cur_list_id: Optional[str] = None
+
+    def flush():
+        nonlocal cur, cur_list_id
+        if cur:
+            sequences.append(cur)
+        cur = None
+        cur_list_id = None
+
+    for p in paragraphs:
+        if p["step_number"] is not None:
+            if p["step_number"] == 1:
+                flush()
+                cur = [p]
+                cur_list_id = None
+            elif cur is not None:
+                cur.append(p)
+        elif p["numbered_list_id"]:
+            if p["numbered_list_id"] != cur_list_id:
+                flush()
+                cur = [p]
+                cur_list_id = p["numbered_list_id"]
+            elif cur is not None:
+                cur.append(p)
+
+    flush()
+    return sequences
+
+
+def _acn_range(start: int, end: int, tab_id: Optional[str]) -> dict:
+    """Build a Range object, optionally scoped to a tab."""
+    r = {"startIndex": start, "endIndex": end}
+    if tab_id:
+        r["tabId"] = tab_id
+    return r
+
+
+def _acn_build_requests(
+    paragraphs: list,
+    sequences: list,
+    content: list,
+    tab_id: Optional[str],
+    strip_plain_text: bool,
+) -> list:
+    """Build the list of batch-update requests for apply_continuous_numbering."""
+    requests: list = []
+
+    for seq in sequences:
+        first = seq[0]
+        last = seq[-1]
+        seq_start = first["start"]
+        seq_end = last["end"]
+
+        # (a) Clear any pre-existing bullets across the whole span.
+        requests.append(
+            {"deleteParagraphBullets": {"range": _acn_range(seq_start, seq_end, tab_id)}}
+        )
+
+        # (b) Apply numbered bullets across the whole span (one listId).
+        requests.append(
+            {
+                "createParagraphBullets": {
+                    "range": _acn_range(seq_start, seq_end, tab_id),
+                    "bulletPreset": "NUMBERED_DECIMAL_NESTED",
+                }
+            }
+        )
+
+        step_starts = {p["start"] for p in seq}
+
+        # (c) Remove bullets from every non-step paragraph in span.
+        for p in paragraphs:
+            if p["start"] < seq_start or p["end"] > seq_end:
+                continue
+            if p["start"] in step_starts:
+                continue
+            requests.append(
+                {
+                    "deleteParagraphBullets": {
+                        "range": _acn_range(p["start"], p["end"], tab_id)
+                    }
+                }
+            )
+
+        # (c1) Indent non-step paragraphs 36pt; italic prompts get 8pt above
+        # for breathing room, file-bullet sub-items stay tight.
+        for p in paragraphs:
+            if p["start"] < seq_start or p["end"] > seq_end:
+                continue
+            if p["start"] in step_starts:
+                continue
+            if not p["text"].strip():
+                continue
+            prompt_space_above = 8 if p["is_italic"] else 0
+            requests.append(
+                {
+                    "updateParagraphStyle": {
+                        "range": _acn_range(p["start"], p["end"], tab_id),
+                        "paragraphStyle": {
+                            "indentStart": {"magnitude": 36, "unit": "PT"},
+                            "indentFirstLine": {"magnitude": 36, "unit": "PT"},
+                            "spaceAbove": {
+                                "magnitude": prompt_space_above,
+                                "unit": "PT",
+                            },
+                            "spaceBelow": {"magnitude": 0, "unit": "PT"},
+                        },
+                        "fields": "indentStart,indentFirstLine,spaceAbove,spaceBelow",
+                    }
+                }
+            )
+            requests.append(
+                {
+                    "updateTextStyle": {
+                        "range": _acn_range(p["start"], p["end"], tab_id),
+                        "textStyle": {"fontSize": {"magnitude": 11, "unit": "PT"}},
+                        "fields": "fontSize",
+                    }
+                }
+            )
+
+        # (c3) 11pt body size on every paragraph in the sequence span.
+        requests.append(
+            {
+                "updateTextStyle": {
+                    "range": _acn_range(seq_start, seq_end, tab_id),
+                    "textStyle": {"fontSize": {"magnitude": 11, "unit": "PT"}},
+                    "fields": "fontSize",
+                }
+            }
+        )
+
+        # (c2) 12pt above / 0 below / NEVER_COLLAPSE on each step.
+        for step in seq:
+            requests.append(
+                {
+                    "updateParagraphStyle": {
+                        "range": _acn_range(step["start"], step["end"], tab_id),
+                        "paragraphStyle": {
+                            "spaceAbove": {"magnitude": 12, "unit": "PT"},
+                            "spaceBelow": {"magnitude": 0, "unit": "PT"},
+                            "spacingMode": "NEVER_COLLAPSE",
+                        },
+                        "fields": "spaceAbove,spaceBelow,spacingMode",
+                    }
+                }
+            )
+
+    # (d) Re-apply disc bullets to originally-bulleted non-step runs in sequence spans.
+    step_starts_global = {p["start"] for seq in sequences for p in seq}
+    sequence_spans = [
+        {"start": seq[0]["start"], "end": seq[-1]["end"]} for seq in sequences
+    ]
+
+    def _para_in_span(para):
+        return any(
+            para["start"] >= s["start"] and para["end"] <= s["end"]
+            for s in sequence_spans
+        )
+
+    runs: list = []
+    cur_run: Optional[list] = None
+    for p in paragraphs:
+        if (
+            p["has_bullet"]
+            and p["start"] not in step_starts_global
+            and _para_in_span(p)
+        ):
+            if cur_run:
+                cur_run.append(p)
+            else:
+                cur_run = [p]
+        else:
+            if cur_run:
+                runs.append(cur_run)
+            cur_run = None
+    if cur_run:
+        runs.append(cur_run)
+
+    for run in runs:
+        requests.append(
+            {
+                "createParagraphBullets": {
+                    "range": _acn_range(run[0]["start"], run[-1]["end"], tab_id),
+                    "bulletPreset": "BULLET_DISC_CIRCLE_SQUARE",
+                }
+            }
+        )
+
+    # (d2) Flatten Mac hanging-indent on NORMAL_TEXT paragraphs OUTSIDE sequence spans.
+    def _outside_spans(start, end):
+        return not any(
+            start >= s["start"] and end <= s["end"] for s in sequence_spans
+        )
+
+    for el in content or []:
+        if "paragraph" not in el:
+            continue
+        p = el["paragraph"]
+        ps = p.get("paragraphStyle") or {}
+        nst = ps.get("namedStyleType", "NORMAL_TEXT")
+        if nst.startswith("HEADING") or nst in ("TITLE", "SUBTITLE"):
+            continue
+        if not _outside_spans(el["startIndex"], el["endIndex"]):
+            continue
+        style_range = _acn_range(el["startIndex"], el["endIndex"], tab_id)
+        requests.append(
+            {
+                "updateParagraphStyle": {
+                    "range": style_range,
+                    "paragraphStyle": {
+                        "indentStart": {"magnitude": 0, "unit": "PT"},
+                        "indentFirstLine": {"magnitude": 0, "unit": "PT"},
+                    },
+                    "fields": "indentStart,indentFirstLine",
+                }
+            }
+        )
+        # Kevin's spacing standard: body text outside sequences is 11pt too,
+        # so topmatter (e.g., "What you'll learn") matches the step body.
+        requests.append(
+            {
+                "updateTextStyle": {
+                    "range": style_range,
+                    "textStyle": {"fontSize": {"magnitude": 11, "unit": "PT"}},
+                    "fields": "fontSize",
+                }
+            }
+        )
+
+    # (d3) Give TITLE and HEADING_1 paragraphs 12pt spaceBelow so topmatter
+    # doesn't hug the title. Other heading levels already space themselves
+    # via the markdown {space:N} wrapper.
+    for el in content or []:
+        if "paragraph" not in el:
+            continue
+        p = el["paragraph"]
+        nst = (p.get("paragraphStyle") or {}).get("namedStyleType", "NORMAL_TEXT")
+        if nst not in ("TITLE", "HEADING_1"):
+            continue
+        requests.append(
+            {
+                "updateParagraphStyle": {
+                    "range": _acn_range(el["startIndex"], el["endIndex"], tab_id),
+                    "paragraphStyle": {
+                        "spaceBelow": {"magnitude": 12, "unit": "PT"},
+                    },
+                    "fields": "spaceBelow",
+                }
+            }
+        )
+
+    # (e) Google Sans per-run across the ENTIRE body/tab. MUST be per-run so
+    # bold weight is preserved. A wide-range weightedFontFamily update would
+    # default weight to 400 and silently un-bold every bold run. The `bold`
+    # field is included in the same update so the weight and bold flag stay
+    # consistent.
+    for el in content or []:
+        if "paragraph" not in el:
+            continue
+        for run in (el["paragraph"].get("elements") or []):
+            tr = run.get("textRun")
+            if not tr:
+                continue
+            run_start = run.get("startIndex")
+            run_end = run.get("endIndex")
+            if run_start is None or run_end is None:
+                continue
+            is_bold = bool((tr.get("textStyle") or {}).get("bold"))
+            requests.append(
+                {
+                    "updateTextStyle": {
+                        "range": _acn_range(run_start, run_end, tab_id),
+                        "textStyle": {
+                            "weightedFontFamily": {
+                                "fontFamily": "Google Sans",
+                                "weight": 700 if is_bold else 400,
+                            },
+                            "bold": is_bold,
+                        },
+                        "fields": "weightedFontFamily,bold",
+                    }
+                }
+            )
+
+    # (f) Strip literal "N. " prefixes in reverse document order.
+    if strip_plain_text:
+        all_steps = [p for seq in sequences for p in seq]
+        all_steps.sort(key=lambda p: p["start"], reverse=True)
+        for p in all_steps:
+            if p["prefix_len"] <= 0:
+                continue
+            requests.append(
+                {
+                    "deleteContentRange": {
+                        "range": _acn_range(
+                            p["start"], p["start"] + p["prefix_len"], tab_id
+                        )
+                    }
+                }
+            )
+
+    return requests
+
+
+@server.tool()
+@handle_http_errors("apply_continuous_numbering", service_type="docs")
+@require_google_service("docs", "docs")
+async def apply_continuous_numbering(
+    service: Any,
+    user_google_email: str,
+    document_id: str,
+    tab_id: Optional[str] = None,
+    strip_plain_text: bool = True,
+) -> str:
+    """
+    Convert plain-text "N. " step prefixes in a Google Doc (or specific tab)
+    into a real numbered list whose numbering continues across intervening
+    prompt paragraphs and sub-bullet lists. Idempotent — safe to re-run on
+    documents already processed.
+
+    Technique:
+      1. createParagraphBullets across the full [first step, last step] span
+         with NUMBERED_DECIMAL_NESTED so every paragraph shares one listId
+      2. deleteParagraphBullets on each non-step paragraph in the span
+         (numbering continuation is preserved because the listId is global)
+      3. Re-apply BULLET_DISC_CIRCLE_SQUARE to contiguous runs of originally
+         bulleted non-step paragraphs (sub-bullet file lists, etc.)
+      4. spaceAbove=12 / spaceBelow=0 / spacingMode=NEVER_COLLAPSE on each
+         step (defeats Google's default COLLAPSE_LISTS spacing)
+      5. indentStart=36 / indentFirstLine=36 on non-step paragraphs so
+         prompts + sub-bullets align with step text
+      6. 11pt font enforcement per-paragraph and across the full span
+      7. Mac hanging-indent flattening on NORMAL_TEXT paragraphs outside
+         sequence spans (namedStyle inheritance bug)
+      8. deleteContentRange in reverse doc order to strip literal "N. "
+         prefix text (Google renders the number via the list glyph)
+
+    Args:
+        document_id: Google Docs document ID.
+        tab_id: Optional tab ID to scope the operation to a specific tab.
+        strip_plain_text: If True (default), strip the literal "N. " prefix
+            text after applying numbered bullets. If False, leaves the text
+            intact — useful for debugging or when the prefix is intentional.
+
+    Returns:
+        Summary string: "Applied continuous numbering in \"<title>\" (tab: <tab>): N sequences, M steps."
+    """
+    logger.info(
+        f"[apply_continuous_numbering] doc={document_id} tab={tab_id} strip={strip_plain_text}"
+    )
+
+    # Fetch the document (include tabs if we need to scope to a tab).
+    doc = await asyncio.to_thread(
+        service.documents()
+        .get(documentId=document_id, includeTabsContent=bool(tab_id))
+        .execute
+    )
+
+    # Resolve tab (if specified).
+    target_tab = None
+    if tab_id:
+
+        def _find_tab(tabs, target_id):
+            for tab in tabs or []:
+                if (tab.get("tabProperties") or {}).get("tabId") == target_id:
+                    return tab
+                found = _find_tab(tab.get("childTabs"), target_id)
+                if found:
+                    return found
+            return None
+
+        target_tab = _find_tab(doc.get("tabs", []), tab_id)
+        if not target_tab:
+
+            def _list_tabs(tabs, out=None):
+                if out is None:
+                    out = []
+                for tab in tabs or []:
+                    props = tab.get("tabProperties") or {}
+                    title = props.get("title") or "(untitled)"
+                    tid = props.get("tabId") or "?"
+                    out.append(f"{title} ({tid})")
+                    _list_tabs(tab.get("childTabs"), out)
+                return out
+
+            available = _list_tabs(doc.get("tabs", []))
+            tab_text = ", ".join(available) if available else "no tabs found"
+            return (
+                f"Tab '{tab_id}' was not found in document {document_id}. "
+                f"Available tabs: {tab_text}."
+            )
+
+    container = (
+        (target_tab or {}).get("documentTab") if target_tab else doc
+    )
+    content = (container.get("body") or {}).get("content", []) or []
+    lists_map = container.get("lists") or doc.get("lists") or {}
+
+    # Scan + group.
+    paragraphs = _acn_scan_paragraphs(content, lists_map)
+    sequences = _acn_group_sequences(paragraphs)
+
+    title = doc.get("title", "(untitled)")
+    tab_suffix = ""
+    if target_tab:
+        tab_title = (target_tab.get("tabProperties") or {}).get("title") or tab_id
+        tab_suffix = f" (tab: {tab_title})"
+
+    if not sequences:
+        return f"No numbered sequences found in \"{title}\"{tab_suffix}."
+
+    # Build + send batch update.
+    requests = _acn_build_requests(
+        paragraphs, sequences, content, tab_id, strip_plain_text
+    )
+
+    await asyncio.to_thread(
+        service.documents()
+        .batchUpdate(documentId=document_id, body={"requests": requests})
+        .execute
+    )
+
+    step_count = sum(len(seq) for seq in sequences)
+    seq_word = "sequence" if len(sequences) == 1 else "sequences"
+    step_word = "step" if step_count == 1 else "steps"
+    return (
+        f"Applied continuous numbering in \"{title}\"{tab_suffix}: "
+        f"{len(sequences)} {seq_word}, {step_count} {step_word}."
+    )
+
+
 # Create comment management tools for documents
 _comment_tools = create_comment_tools("document", "document_id")
 
