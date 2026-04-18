@@ -1,5 +1,15 @@
 <!-- mcp-name: io.github.taylorwilsdon/workspace-mcp -->
 
+# Enhanced Google Workspace MCP — Shareable Package (ve-gws)
+
+Enhanced Google Workspace MCP server for Claude Code and other MCP clients. Fork of [`taylorwilsdon/google_workspace_mcp`](https://github.com/taylorwilsdon/google_workspace_mcp) with **28 additional authoring-focused tools** on top (deeper Slides, Docs markdown, smart chips, Sheets data validation, recursive Drive copy, revisions). See [Why VE-GWS (vs. upstream)](#why-ve-gws-vs-upstream) below.
+
+> **Part of [Vibe Entrepreneurs](https://vibeentrepreneurs.com)** — a community for any vibe coders shipping real work with AI: solo indie builders, product-minded devs, agency folks, side-project makers. You don't need to use ve-gws to join. Come say hi: **[vibeentrepreneurs.com](https://vibeentrepreneurs.com)**.
+>
+> **Companion repo**: [`HuntsDesk/ve-kit`](https://github.com/HuntsDesk/ve-kit) — Vibe Coding Framework & Persistent Memory for Claude Code (persistent task board, process gates, Docker autonomous worker). Install standalone or alongside.
+
+---
+
 <div align="center">
 
 # <span style="color:#cad8d9">Google Workspace MCP Server</span> <img src="https://github.com/user-attachments/assets/b89524e4-6e6e-49e6-ba77-00d6df0c6e5c" width="80" align="right" />
@@ -34,9 +44,7 @@ Some feature ideas ported from [`blakesplay/apollo`](https://github.com/blakespl
 
 **Quality**: 822 tests pass (803 upstream + 19 new). Upstream commits from Taylor's repo are merged in periodically — see [Pulling Upstream Changes](#-pulling-upstream-changes).
 
-**`ve-*` family**: Companion to [`HuntsDesk/ve-kit`](https://github.com/HuntsDesk/ve-kit) (Vibe Entrepreneurs Kit — a Claude Code productivity kit with persistent task board, process gates, Docker autonomous worker). VE-GWS is the Google Workspace MCP piece of that toolchain — install standalone or alongside.
-
-> **From the [Vibe Entrepreneurs](https://vibeentrepreneurs.com) community** — a space for any vibe coders shipping real work with AI: solo indie builders, product-minded devs, agency folks, side-project makers. You don't need to use ve-gws to join. Come say hi: **[vibeentrepreneurs.com](https://vibeentrepreneurs.com)**.
+**`ve-*` family**: Companion to [`HuntsDesk/ve-kit`](https://github.com/HuntsDesk/ve-kit) (Vibe Coding Framework & Persistent Memory for Claude Code — task board, process gates, Docker autonomous worker). VE-GWS is the Google Workspace MCP piece of that toolchain — install standalone or alongside. See the intro at the top of this README for the community invite.
 
 <div align="center">
 <a href="https://www.pulsemcp.com/servers/taylorwilsdon-google-workspace">
