@@ -143,10 +143,35 @@ async def list_spaces(
     space_type: str = "all",  # "all", "room", "dm"
 ) -> str:
     """
-    Lists Google Chat spaces (rooms and direct messages) accessible to the user.
+    List Google Chat spaces (rooms and direct messages) the authenticated
+    user is a member of.
+
+    Use this to discover the `space_id` (in `spaces/<id>` format) needed
+    for `get_messages`, `send_message`, and related Chat tools. The user
+    only sees spaces they have joined — this will not surface public
+    spaces in the workspace they haven't joined.
+
+    Requires OAuth scope:
+    `https://www.googleapis.com/auth/chat.spaces.readonly` (read-only).
+
+    Args:
+        user_google_email: The user's Google email address. Required.
+        page_size: Maximum number of spaces to return in one call. Defaults
+            to 100; Google's hard cap is 1000. No pagination token is
+            exposed by this tool — request a larger page_size if a user is
+            in more than 100 spaces.
+        space_type: Filter by space type. One of:
+            - `"all"` (default): both rooms and direct messages
+            - `"room"`: multi-member named spaces (`SPACE`)
+            - `"dm"`: 1:1 or group direct messages (`DIRECT_MESSAGE`)
+            Any other value is treated as `"all"`.
 
     Returns:
-        str: A formatted list of Google Chat spaces accessible to the user.
+        Multi-line string with:
+        - Header: `Found <N> Chat spaces (type: <filter>):`
+        - One line per space: `- <displayName> (ID: spaces/<id>, Type: <SPACE|DIRECT_MESSAGE|UNKNOWN>)`
+        DMs typically have no `displayName`; those render as `Unnamed Space`.
+        When zero results: `No Chat spaces found for type '<filter>'.`
     """
     logger.info(f"[list_spaces] Email={user_google_email}, Type={space_type}")
 

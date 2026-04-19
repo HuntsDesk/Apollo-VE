@@ -168,14 +168,34 @@ async def create_form(
 @require_google_service("forms", "forms")
 async def get_form(service, user_google_email: str, form_id: str) -> str:
     """
-    Get a form.
+    Fetch a Google Form's metadata and full item list (questions, sections,
+    grids, media items) by its form ID.
+
+    Use this before editing a form with `batch_update_form` — the returned
+    item indices and `itemId`/`questionId` values are the handles you pass
+    into update/delete requests. For response data (submitted answers), use
+    `list_form_responses` or `get_form_response` instead.
+
+    Requires OAuth scope: `https://www.googleapis.com/auth/forms.body` or
+    `forms.body.readonly` (read-only).
 
     Args:
-        user_google_email (str): The user's Google email address. Required.
-        form_id (str): The ID of the form to retrieve.
+        user_google_email: The user's Google email address. Required.
+        form_id: The form ID — the string after `/forms/d/` in the edit URL
+            (NOT the full URL). Example: `1FAIpQLSe...`. Both user-owned and
+            shared forms work if the user has at least read access.
 
     Returns:
-        str: Form details including title, description, questions, and URLs.
+        Multi-line string with:
+        - Title, description, document title
+        - Form ID, edit URL, responder URL
+        - Human-readable item summary: index, title, type, required flag
+        - Full structured JSON of all items (indices, questionIds, options,
+          grid rows/columns) suitable for feeding into `batch_update_form`
+
+    Item types surfaced: `TEXT`, `PARAGRAPH`, `CHOICE` (radio/checkbox/dropdown),
+    `GRID` (with rows+columns), `SCALE`, `DATE`, `TIME`, `FILE_UPLOAD`,
+    `RATING`, `PAGE_BREAK`, `TEXT_ITEM`, `IMAGE`, `VIDEO`.
     """
     logger.info(f"[get_form] Invoked. Email: '{user_google_email}', Form ID: {form_id}")
 
@@ -276,15 +296,38 @@ async def get_form_response(
     service, user_google_email: str, form_id: str, response_id: str
 ) -> str:
     """
-    Get one response from the form.
+    Fetch a single submitted response to a Google Form, including all answers
+    keyed by question ID.
+
+    Use this when you already know the specific `responseId` (e.g., from a
+    prior `list_form_responses` call or from a webhook/trigger). For bulk
+    listing of all responses on a form, use `list_form_responses`. To look up
+    which `questionId` maps to which question prompt, call `get_form` and
+    read the item list.
+
+    Requires OAuth scope: `https://www.googleapis.com/auth/forms.responses.readonly`.
 
     Args:
-        user_google_email (str): The user's Google email address. Required.
-        form_id (str): The ID of the form.
-        response_id (str): The ID of the response to retrieve.
+        user_google_email: The user's Google email address. Required.
+        form_id: The form ID — the string after `/forms/d/` in the edit URL.
+        response_id: The unique response ID returned by `list_form_responses`
+            (field `responseId`). Opaque string assigned by Google at submit
+            time; not the same as a row number.
 
     Returns:
-        str: Response details including answers and metadata.
+        Multi-line string with:
+        - Form ID, response ID
+        - Created timestamp, lastSubmittedTime (differs from createTime when
+          the responder edited their submission)
+        - Answers block: one line per answered question, formatted as
+          `Question ID <questionId>: <joined answer values>`. Questions the
+          responder skipped are labeled `No answer provided`. Multi-select
+          (checkbox) answers are joined with `, `.
+
+    Note: only `textAnswers` are surfaced. File-upload answers, grade info,
+    and per-question feedback live in the raw API response but are not
+    emitted here — fetch via `service.forms().responses().get()` directly
+    if you need them.
     """
     logger.info(
         f"[get_form_response] Invoked. Email: '{user_google_email}', Form ID: {form_id}, Response ID: {response_id}"
@@ -335,16 +378,35 @@ async def list_form_responses(
     page_token: Optional[str] = None,
 ) -> str:
     """
-    List a form's responses.
+    List submitted responses for a Google Form with basic metadata
+    (response IDs, timestamps, answer counts). Paginated.
+
+    Use this to discover response IDs and submission times, then call
+    `get_form_response` with a specific `responseId` to pull the full
+    answer payload. For the form's structure (questions, options),
+    use `get_form`.
+
+    Requires OAuth scope: `https://www.googleapis.com/auth/forms.responses.readonly`.
 
     Args:
-        user_google_email (str): The user's Google email address. Required.
-        form_id (str): The ID of the form.
-        page_size (int): Maximum number of responses to return. Defaults to 10.
-        page_token (Optional[str]): Token for retrieving next page of results.
+        user_google_email: The user's Google email address. Required.
+        form_id: The form ID — the string after `/forms/d/` in the edit URL.
+        page_size: Maximum number of responses per page. Defaults to 10.
+            Google's hard cap is 5000; practical cap depends on response
+            payload size. Use smaller values (10–100) for UI-facing calls
+            and larger (500–5000) for batch export.
+        page_token: Opaque token from a prior call's `Next page token` line.
+            Omit to fetch the first page. Tokens are one-shot — never reuse
+            the same token across sessions.
 
     Returns:
-        str: List of responses with basic details and pagination info.
+        Multi-line string with:
+        - Form ID, total responses returned on this page
+        - One line per response: index, responseId, createTime,
+          lastSubmittedTime, answer count (number of questions answered)
+        - Pagination footer: `Next page token: <token>` if more pages
+          exist, otherwise `No more pages.`
+        When zero responses exist: `No responses found for form <id>...`.
     """
     logger.info(
         f"[list_form_responses] Invoked. Email: '{user_google_email}', Form ID: {form_id}"

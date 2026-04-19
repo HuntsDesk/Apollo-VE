@@ -76,10 +76,34 @@ async def search_docs(
     page_size: int = 10,
 ) -> str:
     """
-    Searches for Google Docs by name using Drive API (mimeType filter).
+    Search for Google Docs by filename substring across the user's entire
+    Drive (including shared drives and items shared with them).
+
+    Use this for name-only lookups — it runs a Drive `files.list` query
+    with `name contains '<query>'` and a mimeType filter pinned to native
+    Google Docs. It does NOT search document content; for full-text search
+    use `search_drive_files` with a `fullText` query, or an external search
+    index. For listing docs in a specific folder, use `list_docs_in_folder`.
+
+    Requires OAuth scope: `https://www.googleapis.com/auth/drive.readonly`
+    (or broader `drive` scope). `trashed=false` is always applied — trashed
+    docs are excluded.
+
+    Args:
+        user_google_email: The user's Google email address. Required.
+        query: Case-insensitive substring to match against Doc filenames.
+            Single quotes are auto-escaped before being embedded in the
+            Drive query, so apostrophes in titles are safe. Empty string
+            matches all Docs (bounded by `page_size`).
+        page_size: Maximum number of results. Defaults to 10. Google's
+            hard cap is 1000. No pagination token is exposed — increase
+            this value if you need more results in one call.
 
     Returns:
-        str: A formatted list of Google Docs matching the search query.
+        Multi-line string:
+        - Header: `Found <N> Google Docs matching '<query>':`
+        - One line per doc: `- <name> (ID: <fileId>) Modified: <rfc3339> Link: <webViewLink>`
+        When zero matches: `No Google Docs found matching '<query>'.`
     """
     logger.info(f"[search_docs] Email={user_google_email}, Query='{query}'")
 
@@ -311,10 +335,38 @@ async def list_docs_in_folder(
     service: Any, user_google_email: str, folder_id: str = "root", page_size: int = 100
 ) -> str:
     """
-    Lists Google Docs within a specific Drive folder.
+    List all Google Docs (native `application/vnd.google-apps.document`)
+    that live directly inside a given Drive folder.
+
+    Use this when you want to enumerate Docs inside a known folder (e.g.,
+    a team drive subfolder). For name-based search across the whole
+    Drive, use `search_docs`. For non-Doc files (Sheets, Slides, PDFs,
+    etc.) in the folder, use `list_drive_items` or `search_drive_files`.
+
+    Only direct children are returned — subfolders are NOT recursed. Shared
+    drives are supported via `supportsAllDrives=True` + `includeItemsFromAllDrives=True`.
+    Trashed docs are excluded.
+
+    Requires OAuth scope: `https://www.googleapis.com/auth/drive.readonly`
+    (or broader `drive` scope).
+
+    Args:
+        user_google_email: The user's Google email address. Required.
+        folder_id: Drive folder ID (the string after `/folders/` in the
+            folder URL). Defaults to `"root"` which is the user's My Drive
+            root. For shared drives, pass the shared-drive ID. Passing an
+            invalid or inaccessible folder ID returns "No Google Docs found"
+            (Drive treats missing folders as an empty set rather than
+            raising an error in most cases).
+        page_size: Maximum number of docs to return. Defaults to 100.
+            Google's hard cap is 1000. No pagination token is exposed —
+            raise this value if a folder may contain more docs.
 
     Returns:
-        str: A formatted list of Google Docs in the specified folder.
+        Multi-line string:
+        - Header: `Found <N> Docs in folder '<folder_id>':`
+        - One line per doc: `- <name> (ID: <fileId>) Modified: <rfc3339> Link: <webViewLink>`
+        When zero matches: `No Google Docs found in folder '<folder_id>'.`
     """
     logger.info(
         f"[list_docs_in_folder] Invoked. Email: '{user_google_email}', Folder ID: '{folder_id}'"

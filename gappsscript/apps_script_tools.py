@@ -908,16 +908,37 @@ async def get_version(
     version_number: int,
 ) -> str:
     """
-    Gets details of a specific version.
+    Fetch metadata for a specific immutable version of a Google Apps Script
+    project.
+
+    A "version" in Apps Script is a snapshot of script code taken at a point
+    in time — versions are referenced by deployments and cannot be edited
+    after creation. Use this to inspect the description/create-time of one
+    known version. For the full list of versions on a project, use
+    `list_versions`. To create a new version from the current code, use
+    `create_version`. To inspect deployments that point to versions, use
+    `list_deployments`.
+
+    Requires OAuth scope:
+    `https://www.googleapis.com/auth/script.projects.readonly` (read-only)
+    or the broader `script.projects` scope.
 
     Args:
-        service: Injected Google API service client
-        user_google_email: User's email address
-        script_id: The script project ID
-        version_number: The version number to retrieve (1, 2, 3, etc.)
+        service: Injected Google API service client.
+        user_google_email: User's email address. Required.
+        script_id: The Apps Script project ID — the string after `/d/` in the
+            `script.google.com/home/projects/<id>` URL, or the `scriptId`
+            field returned by `create_script_project` / `list_script_projects`.
+        version_number: The 1-indexed integer version number to retrieve
+            (1 for the first version, 2 for the second, etc.). Must refer to
+            an already-created version; requesting a non-existent number
+            raises a `404 Not Found` handled by the error decorator.
 
     Returns:
-        str: Formatted string with version details
+        Multi-line string:
+            Line 1: `Version <N> of script: <script_id>`
+            Line 2: `Description: <description or "No description">`
+            Line 3: `Created: <rfc3339 timestamp>`
     """
     return await _get_version_impl(
         service, user_google_email, script_id, version_number
